@@ -1,0 +1,20 @@
+{
+  "name": "eclone",
+  "version": "0.1.0-demo",
+  "private": true,
+  "type": "module",
+  "description": "EClone (demo): a talking 3D digital twin of a person. GPT or Claude brain, persona notes, memory and mood, cloned or Mac voice, VRM avatar in a 3D house.",
+  "scripts": {
+    "start": "node server.js",
+    "setup": "node scripts/setup.mjs",
+    "check": "node scripts/check.mjs",
+    "share": "node scripts/share.mjs"
+  },
+  "engines": {
+    "node": ">=20.12"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.4.0",
+    "openai": "^7.47.0"
+  }
+}

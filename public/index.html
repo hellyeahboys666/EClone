@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EClone</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+        "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.4.1/lib/three-vrm.module.min.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <header class="topbar">
+    <div class="name" id="twin-name">EClone</div>
+    <div class="chips">
+      <span class="chip" id="brain-chip">Brain</span>
+      <span class="chip" id="voice-chip">Voice</span>
+      <span class="chip chip-info" id="mood-chip">Mood</span>
+      <span class="chip chip-info" id="token-chip">Tokens</span>
+      <a class="chip chip-button" href="/mind" target="_blank" rel="noopener" title="Edit the persona, rules and memories">Mind</a>
+      <button type="button" class="chip chip-button" id="house-button" aria-controls="house-panel" aria-expanded="false">House</button>
+      <button type="button" class="chip chip-button" id="new-chat">New chat</button>
+    </div>
+  </header>
+
+  <aside class="house-panel" id="house-panel" aria-label="House settings" hidden></aside>
+
+  <div class="loading" id="loading">Loading avatar…</div>
+
+  <section class="panel">
+    <ol class="log" id="log" aria-live="polite"></ol>
+    <form class="composer" id="composer">
+      <button type="button" class="mic" id="mic" aria-label="Talk" title="Talk">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path fill="currentColor" d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/>
+        </svg>
+      </button>
+      <input id="input" autocomplete="off" placeholder="Say something…">
+      <button type="submit" class="send">Send</button>
+    </form>
+    <p class="hint" id="hint"></p>
+  </section>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

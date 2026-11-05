@@ -1,0 +1,49 @@
+/* The Mind page: a normal scrolling page in the same dark style as the twin. */
+html, body.mind-page { overflow: auto; height: auto; }
+body.mind-page { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+
+.mind-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.mind-top h1 { margin: 0 0 4px; font-size: 22px; }
+.mind-top a { text-decoration: none; padding: 6px 12px; }
+.muted { color: var(--muted); margin: 0; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; border-bottom: 1px solid var(--glass-border); padding-bottom: 10px; }
+.tabs button { font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid transparent; background: none; color: var(--muted); cursor: pointer; }
+.tabs button[aria-selected="true"] { color: var(--text); background: rgba(255, 255, 255, 0.08); border-color: var(--glass-border); }
+
+.card { background: rgba(255, 255, 255, 0.04); border: 1px solid var(--glass-border); border-radius: 12px; padding: 14px; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.split { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 14px; }
+@media (max-width: 720px) { .split { grid-template-columns: 1fr; } }
+
+.mind-page textarea, .mind-page input[type="text"], .mind-page input[type="search"], .mind-page input[type="date"], .mind-page select {
+  font: inherit; color: var(--text); background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--glass-border); border-radius: 8px; padding: 8px 10px;
+}
+.mind-page textarea { width: 100%; resize: vertical; line-height: 1.5; }
+.editor { min-height: 420px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+.mind-page :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.btn { font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--glass-border); background: rgba(255, 255, 255, 0.08); color: var(--text); cursor: pointer; }
+.btn:hover { background: rgba(255, 255, 255, 0.14); }
+.btn.primary { background: var(--accent); color: #0b1724; border-color: transparent; font-weight: 600; }
+.btn.danger { color: var(--danger); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+
+.notes { display: flex; flex-direction: column; gap: 4px; }
+.notes button { text-align: left; font: inherit; color: var(--muted); background: none; border: 1px solid transparent; border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+.notes button[aria-current="true"] { color: var(--text); background: rgba(255, 255, 255, 0.08); border-color: var(--glass-border); }
+.notes small { display: block; font-size: 11px; color: var(--muted); }
+
+.memory { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; align-items: start; }
+.memory textarea { min-height: 2.6em; }
+.memory .meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--muted); }
+.memory .side { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.badge { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--glass-border); }
+.badge.impression { color: #ffd48a; }
+.importance { width: 4.5em; }
+
+.status { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); margin: 0; padding: 8px 14px; border-radius: 10px; background: var(--glass); border: 1px solid var(--glass-border); }
+.status:empty { display: none; }
+.status.error { color: var(--danger); }

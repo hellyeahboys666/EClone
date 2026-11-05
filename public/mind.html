@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mind · EClone</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/mind.css">
+</head>
+<body class="mind-page">
+  <header class="mind-top">
+    <div>
+      <h1 id="title">Mind</h1>
+      <p class="muted">Who the twin is, how it behaves, and what it remembers. Changes apply on its next message.</p>
+    </div>
+    <a class="chip chip-button" href="/">Back to the twin</a>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button type="button" role="tab" data-tab="persona" aria-selected="true">Persona notes</button>
+    <button type="button" role="tab" data-tab="rules" aria-selected="false">Rules</button>
+    <button type="button" role="tab" data-tab="memories" aria-selected="false">Memories</button>
+    <button type="button" role="tab" data-tab="state" aria-selected="false">Mood &amp; chat</button>
+  </nav>
+
+  <main id="view"></main>
+  <p class="status" id="status" role="status"></p>
+
+  <script type="module" src="/mind.js"></script>
+</body>
+</html>

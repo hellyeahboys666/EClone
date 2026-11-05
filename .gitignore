@@ -1,0 +1,16 @@
+node_modules/
+.env
+# Personal: the person's notes, memories, avatar, voice samples. Never share or commit these.
+persona/
+persona-backups/
+memory/
+avatar/*.vrm
+media/
+reference/
+house.json
+*.tmp
+
+# Local tools and system files
+.claude/
+.DS_Store
+*.zip
