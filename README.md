@@ -8,7 +8,7 @@ This guide takes you from nothing to a running twin in about 10 minutes. [INTROD
 
 Most AI companions are made-up characters. Most "digital clone" services live on someone else's servers. EClone is a twin of one real person that lives on your own computer, and it behaves like someone with a life:
 
-- **A twin of a real person, with consent built in.** It speaks as them from notes in their own words and only states facts it was given. It says plainly that it's an AI when sincerely asked, and never makes promises for them. The setup guide is written around the person agreeing to it.
+- **A twin of a real person, with consent built in.** It speaks as them from notes in their own words and only states facts it was given. It says plainly that it's an AI when sincerely asked, and never makes promises for them. The setup guide is written around the person agreeing to it (see [Responsible use](#responsible-use)).
 - **Memory that works like a person's.**
   - Conversations turn into dated memories on their own, while it's idle.
   - It recalls memories by meaning, so "my nan" finds the memory about a grandma.
@@ -273,6 +273,19 @@ Agree with the person on who gets to talk to their twin, whether it's ever shown
 
 For developers: open the page with `?debug` to try moods and body language from the browser console, like `twinDebug.mood('happy', 8)` or `twinDebug.activity('thinking')`. INTRODUCTION.md covers the design, what was tested, and ideas for next steps.
 
+## Responsible use
+
+EClone makes a twin of a real person, so please use it the way you'd want someone to use a twin of you:
+
+- **Only with their consent.** Make a twin only of someone who agrees to it and knows what it can do. Don't make one of a person who can't agree, or who hasn't.
+- **Let them decide.** They should know who talks to their twin and whether it's ever shown publicly, and be able to have it changed or deleted. If they ask you to delete it, delete it.
+- **Don't deceive anyone with it.** Don't use a twin to impersonate the person, pretend to be them in messages or calls, or trick people into thinking they're talking to the real person. The twin is built to say it's an AI when sincerely asked; keep it that way.
+- **Keep it private.** Persona notes, memories, voice samples and avatars are about a real person. Don't publish or share them without permission (`npm run share` and `.gitignore` leave them out).
+- **Voices and faces need consent too.** A cloned voice or a lookalike avatar should come from the person themselves, through the provider's own consent process.
+- **Not for harm.** Don't use EClone to harass, defraud or manipulate anyone, or for anything illegal where you live.
+
+These are the author's expectations, not extra license terms. The MIT license below still applies as written.
+
 ## License
 
-MIT, see [LICENSE](LICENSE). This covers the code only; persona notes, memories, voices and avatars you add stay yours and aren't part of the repository.
+MIT, see [LICENSE](LICENSE). This covers the code only; persona notes, memories, voices and avatars you add stay yours and aren't part of the repository. Please also follow [Responsible use](#responsible-use).
