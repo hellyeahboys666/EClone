@@ -8,6 +8,7 @@ avatar/*.vrm
 media/
 reference/
 house.json
+schedule.json
 *.tmp
 
 # Local tools and system files

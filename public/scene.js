@@ -85,13 +85,21 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
     renderer.render(scene, camera);
   });
 
+  // Whether the twin is home: when its schedule has it out, the room is empty.
+  let present = true;
+  function setPresent(here) {
+    present = here;
+    if (vrm) vrm.scene.visible = here;
+  }
+
   const loaded = loadAvatar(avatarUrl, onProgress).then((avatar) => {
     vrm = avatar;
+    vrm.scene.visible = present;
     scene.add(vrm.scene);
     if (vrm.lookAt) vrm.lookAt.target = gaze;
     return vrm;
   });
-  return { setHouse, loaded };
+  return { setHouse, setPresent, loaded };
 }
 
 async function loadAvatar(url, onProgress) {

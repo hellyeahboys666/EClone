@@ -80,6 +80,7 @@ It checks Node, the packages, your key (with a free test request), the voice, th
   |---|---|
   | Brain | Which model is answering. Hover to see the backup model. |
   | Voice | Which voice it uses. |
+  | Status | What it's doing on its schedule ("Out: Work · until 5:00 PM"). Only shown once it has a schedule. |
   | Mood | How it feels right now. Hover to see why. |
   | Tokens | What the last reply and today cost in tokens. |
   | Mind | Opens the editor for who it is and what it remembers. |
@@ -139,8 +140,27 @@ They're files in `memory/`:
 | `mood.json` | How it feels right now |
 | `usage.json` | Token counts |
 | `house-seen.json` | The room as it last saw it, so it notices changes |
+| `schedule-state.json` | Which departures it already announced |
 
 Use the Mind page while the twin is running. If you edit the files by hand, stop the twin first. Deleting the `memory/` folder wipes all of it.
+
+## Give it a schedule
+
+On the **Mind** page, open **Schedule** to set what the twin does during the week, using this computer's clock. Quick-add buttons cover Work, School, Sleep, Gym and Homework.
+
+For each activity, set:
+- the days, and the times it starts and ends (an end before the start runs past midnight, like Sleep 11 PM–7 AM)
+- whether it's **at home** or **out**
+- whether it's **busy**
+- whether to **say it's leaving** 5–30 minutes before
+
+Then:
+- **When it's busy,** it answers the way that person would when busy ("at the bike shop right now, kinda busy", "doing homework, maybe later").
+- **When it's out,** the avatar isn't in the house and the status chip shows where it is. You can still message it.
+- **Before going out,** while the page is open, it tells you it's leaving ("I've gotta head out, work starts at 9").
+- **Afterwards,** it knows it just finished ("just got home, chess sure").
+
+The schedule is saved in `schedule.json`, which is private and left out of git and `npm run share`.
 
 ## Make it look and sound like them
 
@@ -195,7 +215,7 @@ Agree with the person on who gets to talk to their twin, whether it's ever shown
 | `rules.md` | How any twin behaves |
 | `persona/` | Who this twin is (private). `persona-template/` is the starting point. |
 | `public/` | The page: chat (`app.js`), 3D stage and avatar (`scene.js`), house (`house*.js`), Mind page (`mind.*`) |
-| `memory/`, `house.json`, `.env` | Created as you use it. `memory/` and `.env` are private. |
+| `memory/`, `house.json`, `schedule.json`, `.env` | Created as you use it. `memory/`, `schedule.json` and `.env` are private. |
 
 For developers: open the page with `?debug` to try moods and body language from the browser console, like `twinDebug.mood('happy', 8)` or `twinDebug.activity('thinking')`. INTRODUCTION.md covers the design, what was tested, and ideas for next steps.
 

@@ -8,6 +8,7 @@ const els = {
   name: document.getElementById('twin-name'),
   brainChip: document.getElementById('brain-chip'),
   voiceChip: document.getElementById('voice-chip'),
+  statusChip: document.getElementById('status-chip'),
   moodChip: document.getElementById('mood-chip'),
   tokenChip: document.getElementById('token-chip'),
   newChat: document.getElementById('new-chat'),
@@ -57,6 +58,10 @@ async function init() {
   setInterval(showMood, 60_000); // the feeling fades even while nobody's talking
   loadConversation()
     .then(maybeSpeakFirst)
+    .then(() => {
+      checkSchedule();
+      setInterval(checkSchedule, 60_000);
+    })
     .catch((err) => hint(`Couldn't load the conversation: ${err.message}`));
   els.newChat.addEventListener('click', newChat);
 
@@ -69,6 +74,7 @@ async function init() {
     onProgress: (p) => (els.loading.textContent = `Loading avatar… ${Math.min(100, Math.round(p * 100))}%`),
   });
   createHousePanel({ button: els.houseButton, panel: els.housePanel, initial: config.house, onChange: stage.setHouse });
+  setPresent = stage.setPresent;
   stage.loaded
     .then(() => {
       els.loading.hidden = true;
@@ -120,6 +126,30 @@ async function maybeSpeakFirst() {
   addBubble('twin', line);
   if (totals) showUsage(null, totals);
   speech.sayIfAllowed(line);
+}
+
+// The twin's schedule, checked every minute: what it's doing (the status chip),
+// whether it's home (the avatar is gone while it's out), and a line when it's
+// about to leave for something ("heading to work, talk later").
+let setPresent = () => {};
+let lastStatus = '';
+async function checkSchedule() {
+  const res = await fetch('/api/tick', { method: 'POST' }).catch(() => null);
+  if (!res?.ok) return;
+  const { scheduled, status, line, totals } = await res.json();
+  els.statusChip.hidden = !scheduled;
+  const label = status ? `${status.where === 'away' ? 'Out' : status.busy ? 'Busy' : 'Now'}: ${status.name} · until ${status.until}` : 'Free';
+  els.statusChip.textContent = label;
+  els.statusChip.title = status?.note ? `${status.name}: ${status.note}` : status ? `${status.where === 'away' ? 'Out' : 'At home'}, ${status.busy ? 'busy' : 'free to chat'}` : 'Nothing on the schedule right now.';
+  setPresent(status?.where !== 'away');
+  if (label !== lastStatus && status?.where === 'away') hint(`${els.name.textContent} is out (${status.name}) until ${status.until}. You can still message.`);
+  else if (label !== lastStatus && lastStatus.startsWith('Out')) hint('');
+  lastStatus = label;
+  if (line && !currentTurn) {
+    addBubble('twin', line);
+    if (totals) showUsage(null, totals);
+    speech.sayIfAllowed(line);
+  }
 }
 
 // An earlier version kept the conversation in this browser; hand it to the server once.

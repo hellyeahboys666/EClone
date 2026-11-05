@@ -13,6 +13,7 @@ import { createMemory, formatTime, loadJson, saveJson } from './memory.js';
 import { FEELINGS, createMood, createTagReader, moodTag, splitMoodTag } from './mood.js';
 import { cleanHouse } from './public/house-config.js';
 import { describeHouse, houseChanges } from './surroundings.js';
+import { cleanSchedule, clock, currentActivity, nextActivity, occurrences } from './public/schedule-config.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -33,6 +34,7 @@ const config = {
   rulesFile: path.resolve(ROOT, process.env.RULES_FILE || 'rules.md'), // another file lets you try rule changes side by side
   memoryDir: path.resolve(ROOT, process.env.MEMORY_DIR || 'memory'),
   houseFile: path.resolve(ROOT, process.env.HOUSE_FILE || 'house.json'), // the House panel's settings
+  scheduleFile: path.resolve(ROOT, process.env.SCHEDULE_FILE || 'schedule.json'), // the twin's weekly schedule (private)
   brain: process.env.BRAIN === 'openai' ? 'openai' : 'claude',
   model: process.env.CLAUDE_MODEL || 'claude-opus-5-5',
   effort: process.env.CLAUDE_EFFORT || 'low',
@@ -100,6 +102,10 @@ function memoryBlock(memories) {
 // The room the twin is standing in (the House panel's settings, in words), and what
 // changed since it last spoke. The house as it was then is kept in house-seen.json.
 async function surroundingsBlock() {
+  const now = currentActivity(await loadSchedule());
+  if (now?.activity.where === 'away') {
+    return `<surroundings>\nYou're not at home right now: you're out at ${now.activity.name}${now.activity.note ? ` (${now.activity.note})` : ''}. The living room they see on their screen is empty while you're out.\n</surroundings>`;
+  }
   const house = await loadHouse();
   const seen = await loadJson(path.join(config.memoryDir, 'house-seen.json'), null).catch(() => null);
   const changes = houseChanges(seen, house);
@@ -112,6 +118,98 @@ async function surroundingsBlock() {
 
 async function rememberHouseSeen() {
   await saveJson(path.join(config.memoryDir, 'house-seen.json'), await loadHouse());
+}
+
+// ---- Schedule: what the twin is doing, and leaving for things -----------------
+
+async function loadSchedule() {
+  return cleanSchedule(await loadJson(config.scheduleFile, {}).catch(() => ({})));
+}
+
+// What the twin is doing right now and what's next, for the brain. Empty without a schedule.
+async function scheduleBlock(when = new Date()) {
+  const schedule = await loadSchedule();
+  if (!schedule.activities.length) return '';
+  const describe = (o) => `${o.activity.name}${o.activity.note ? ` (${o.activity.note})` : ''}`;
+  const day = (d) => (d.toDateString() === when.toDateString() ? 'today' : d.toDateString() === new Date(when.getTime() + 86_400_000).toDateString() ? 'tomorrow' : d.toLocaleDateString('en-US', { weekday: 'long' }));
+  const now = currentActivity(schedule, when);
+  const next = nextActivity(schedule, when);
+  const lines = [];
+  if (now) {
+    const a = now.activity;
+    lines.push(`Right now you're ${a.where === 'away' ? 'out at' : 'at home doing'} ${describe(now)}, until ${clock(now.end)}.`);
+    if (a.busy) lines.push("You're busy, so reply the way you would when busy: briefly, and maybe say you're busy or at it and will talk later, in your own words. If it's urgent or important, you make time.");
+  } else {
+    lines.push("Right now you're free, with nothing scheduled.");
+    // Something that just ended ("you got off work 5 minutes ago"), so a person would know.
+    const done = occurrences(schedule, when).filter((o) => o.end <= when && when - o.end < 2 * 3_600_000).at(-1);
+    if (done) {
+      const ago = Math.round((when - done.end) / 60_000);
+      lines.push(`You finished ${describe(done)} at ${clock(done.end)}, ${ago < 60 ? `about ${Math.max(1, ago)} minutes ago` : 'a little while ago'}${done.activity.where === 'away' ? ", and you're back home" : ''}.`);
+    }
+  }
+  if (next) {
+    const minutes = Math.round((next.start - when) / 60_000);
+    const soon = minutes <= 60 ? `, in about ${minutes} minutes` : '';
+    lines.push(`Next: ${describe(next)} at ${clock(next.start)} ${day(next.start)}${soon}${next.activity.where === 'away' ? ' (you go out for it)' : ''}.`);
+  }
+  return `<schedule>\n${lines.join(' ')}\n</schedule>`;
+}
+
+// Called every minute by the open page: what the twin is doing (for the status
+// chip and whether it's in the house), and, a few minutes before it goes out for
+// something, a line saying it's leaving. Each departure is announced once.
+const ANNOUNCE_SCHEMA = { type: 'object', additionalProperties: false, required: ['line'], properties: { line: { type: 'string' } } };
+let announcing = false;
+
+async function handleTick(res) {
+  const schedule = await loadSchedule();
+  const when = new Date();
+  const now = currentActivity(schedule, when);
+  const status = now
+    ? { name: now.activity.name, note: now.activity.note, until: clock(now.end), where: now.activity.where, busy: now.activity.busy }
+    : null;
+  let line = null;
+  const due = occurrences(schedule, when).find(
+    (o) => o.activity.where === 'away' && o.activity.notice && o.start > when && o.start - when <= o.activity.notice * 60_000,
+  );
+  if (due && hasBrainKey() && !inFlight && !announcing) {
+    const stateFile = path.join(config.memoryDir, 'schedule-state.json');
+    const state = await loadJson(stateFile, { announced: [] }).catch(() => ({ announced: [] }));
+    if (!state.announced.includes(due.key)) {
+      announcing = true;
+      try {
+        state.announced = [...state.announced, due.key].slice(-60);
+        await saveJson(stateFile, state); // marked first, so a failure can't make it repeat
+        line = await announceLeaving(due, when);
+      } catch (err) {
+        console.error('[schedule]', err);
+      } finally {
+        announcing = false;
+      }
+    }
+  }
+  sendJson(res, 200, { scheduled: schedule.activities.length > 0, status, line, ...(line && { totals: memory.usageSummary() }) });
+}
+
+async function announceLeaving(due, when) {
+  const messages = memory.messages();
+  const cue = `${due.activity.name} ${due.activity.note}\n${messages.slice(-3).map((m) => m.content).join('\n')}`;
+  const [vector, instructions, room, plans] = await Promise.all([memory.cueVector(cue), buildSystemPrompt(), surroundingsBlock(), scheduleBlock(when)]);
+  const system = [instructions, memoryBlock(memory.recall(cue, { vector, reinforce: false })), room, plans, `<mood>\n${mood.describe()}\n</mood>`]
+    .filter(Boolean)
+    .join('\n\n');
+  const minutes = Math.max(1, Math.round((due.start - when) / 60_000));
+  const prompt =
+    `It's ${clock(when)}. You need to head out for ${due.activity.name}${due.activity.note ? ` (${due.activity.note})` : ''} in about ${minutes} ` +
+    `minutes (it starts at ${clock(due.start)}). Tell them you're about to leave, the way you'd tell a friend: one short line in your ` +
+    'usual voice, with no mood tag. If you were in the middle of something with them, you can wrap it up.';
+  const { data, usage } = await completeJson(system, prompt, ANNOUNCE_SCHEMA);
+  await memory.recordUsage('chat', usage);
+  const line = splitMoodTag(String(data.line ?? '').trim()).text;
+  if (!line) return null;
+  await memory.addMessage({ role: 'assistant', content: line, at: Date.now(), mood: mood.current() });
+  return line;
 }
 
 // How the twin feels right now, and how to report a change. The tag format lives
@@ -348,9 +446,9 @@ async function handleChat(req, res) {
     const messages = memory.messages();
     // What was just said (and the moment before it) is the cue for recall.
     const cue = messages.slice(-3).map((m) => m.content).join('\n');
-    const [vector, instructions, room] = await Promise.all([memory.cueVector(cue), buildSystemPrompt(), surroundingsBlock()]);
+    const [vector, instructions, room, plans] = await Promise.all([memory.cueVector(cue), buildSystemPrompt(), surroundingsBlock(), scheduleBlock()]);
     const recalled = memory.recall(cue, { vector });
-    const system = [instructions, memoryBlock(recalled), room, moodBlock()].filter(Boolean);
+    const system = [instructions, memoryBlock(recalled), room, plans, moodBlock()].filter(Boolean);
     const show = (text) => {
       if (!text) return;
       reply += text;
@@ -450,8 +548,8 @@ async function handleOpener(res) {
   try {
     const recent = messages.slice(-10);
     const cue = recent.length ? recent.map((m) => m.content).join('\n') : 'catching up with them';
-    const [vector, instructions, room] = await Promise.all([memory.cueVector(cue), buildSystemPrompt(), surroundingsBlock()]);
-    const system = [instructions, memoryBlock(memory.recall(cue, { vector, reinforce: false })), room, `<mood>\n${mood.describe()}\n</mood>`]
+    const [vector, instructions, room, plans] = await Promise.all([memory.cueVector(cue), buildSystemPrompt(), surroundingsBlock(), scheduleBlock()]);
+    const system = [instructions, memoryBlock(memory.recall(cue, { vector, reinforce: false })), room, plans, `<mood>\n${mood.describe()}\n</mood>`]
       .filter(Boolean)
       .join('\n\n');
     const away = timeLabel(Date.now(), lastAt).replace(/^\[|\] $/g, '');
@@ -516,6 +614,7 @@ async function handleMind(res) {
     memories: memory.list(),
     mood: mood.snapshot(),
     conversation: memory.messages().length,
+    schedule: await loadSchedule(),
   });
 }
 
@@ -543,6 +642,7 @@ async function handleMindChange(req, res) {
     else if (action === 'deleteMemory') await memory.removeMemory(body.id);
     else if (action === 'forgetAll') await memory.forgetAll();
     else if (action === 'resetMood') await mood.reset();
+    else if (action === 'saveSchedule') await saveJson(config.scheduleFile, cleanSchedule(body.schedule));
     else if (action === 'clearConversation') await memory.clearConversation();
     else return sendJson(res, 400, { error: 'Unknown change.' });
   } catch (err) {
@@ -674,6 +774,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/new-chat') return await handleNewChat(res);
     if (req.method === 'POST' && pathname === '/api/opener') return await handleOpener(res);
     if (req.method === 'POST' && pathname === '/api/house') return await handleSaveHouse(req, res);
+    if (req.method === 'POST' && pathname === '/api/tick') return await handleTick(res);
     if (req.method === 'GET' && pathname === '/api/mind') return await handleMind(res);
     if (req.method === 'POST' && pathname === '/api/mind') return await handleMindChange(req, res);
     if (req.method === 'POST' && pathname === '/api/import') return await handleImport(req, res);

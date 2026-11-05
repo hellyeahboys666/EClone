@@ -2,12 +2,15 @@
 // mood or conversation. Everything goes through the server (/api/mind), so edits
 // are safe while the twin is running.
 
+import { DAYS, DAY_NAMES, NOTICE_OPTIONS, PRESETS, clock, currentActivity, nextActivity } from './schedule-config.js';
+
 const view = document.getElementById('view');
 const statusEl = document.getElementById('status');
 let state = null;
 let tab = 'persona';
 let openNote = null;
 let search = '';
+let draft = null; // the schedule being edited, saved with the Save button
 
 // Small helper for building elements: h('button', { class: 'btn', onclick }, 'Save').
 function h(tag, props = {}, ...children) {
@@ -60,6 +63,7 @@ async function change(action, body = {}, done = 'Saved. It applies on the next m
 for (const button of document.querySelectorAll('[data-tab]')) {
   button.addEventListener('click', () => {
     tab = button.dataset.tab;
+    if (tab === 'schedule') draft = null; // start from what's saved
     for (const b of document.querySelectorAll('[data-tab]')) b.setAttribute('aria-selected', String(b === button));
     render();
   });
@@ -67,7 +71,7 @@ for (const button of document.querySelectorAll('[data-tab]')) {
 
 function render() {
   if (!state) return;
-  const views = { persona: personaView, rules: rulesView, memories: memoriesView, state: stateView };
+  const views = { persona: personaView, rules: rulesView, memories: memoriesView, schedule: scheduleView, state: stateView };
   view.replaceChildren(views[tab]());
 }
 
@@ -188,6 +192,68 @@ function importancePicker(value) {
   const select = h('select', { class: 'importance', 'aria-label': 'Importance from 1 to 10' });
   for (let i = 1; i <= 10; i++) select.add(new Option(String(i), String(i), false, i === value));
   return select;
+}
+
+// ---- Schedule ------------------------------------------------------------------------
+
+function scheduleView() {
+  draft ??= structuredClone(state.schedule);
+  const name = state.name;
+  const now = currentActivity(draft);
+  const next = nextActivity(draft);
+  const status = now
+    ? `Right now ${name} is ${now.activity.where === 'away' ? 'out at' : 'at home,'} ${now.activity.name} until ${clock(now.end)}.`
+    : `Right now ${name} is free.`;
+  const when = (d) => (d.toDateString() === new Date().toDateString() ? 'today' : d.toDateString() === new Date(Date.now() + 86_400_000).toDateString() ? 'tomorrow' : d.toLocaleDateString('en-US', { weekday: 'long' }));
+  const upcoming = next ? ` Next: ${next.activity.name} at ${clock(next.start)} ${when(next.start)}.` : '';
+
+  const save = h('button', { class: 'btn primary', type: 'button', onclick: async () => {
+    if (await change('saveSchedule', { schedule: draft }, 'Schedule saved. The twin follows it from now on.')) draft = structuredClone(state.schedule), render();
+  } }, 'Save schedule');
+  const presets = h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Add:'),
+    PRESETS.map((p) => h('button', { class: 'btn', type: 'button', onclick: () => { draft.activities.push({ ...structuredClone(p), id: newId() }); render(); } }, p.name)),
+    h('button', { class: 'btn', type: 'button', onclick: () => { draft.activities.push({ id: newId(), name: 'Something', note: '', days: ['sat'], start: '10:00', end: '12:00', where: 'home', busy: false, notice: 0 }); render(); } }, 'Other'));
+
+  return h('div', { class: 'stack' },
+    h('p', { class: 'muted' }, `What ${name} does during the week, using this computer's clock. While busy, replies are short (like "at work, talk later"). While out, the avatar isn't in the house. Before going out, ${name} can say it's leaving, while the page is open.`),
+    h('div', { class: 'card' }, h('p', {}, status + upcoming)),
+    presets,
+    draft.activities.length ? draft.activities.map(activityCard) : h('p', { class: 'muted' }, 'No schedule yet, so the twin is always free. Add something above.'),
+    h('div', { class: 'row' }, save, h('span', { class: 'muted' }, 'Changes here take effect when you save.')),
+  );
+}
+
+function activityCard(a) {
+  const field = (label, input) => h('label', { class: 'field' }, h('span', { class: 'muted' }, label), input);
+  const nameIn = h('input', { type: 'text', value: a.name, 'aria-label': 'Activity name', oninput: (e) => (a.name = e.target.value) });
+  const noteIn = h('input', { type: 'text', value: a.note, placeholder: 'at the bike shop', oninput: (e) => (a.note = e.target.value) });
+  const days = h('div', { class: 'days' }, DAYS.map((d) => {
+    const box = h('input', { type: 'checkbox', checked: a.days.includes(d), onchange: (e) => {
+      a.days = e.target.checked ? [...a.days, d] : a.days.filter((x) => x !== d);
+    } });
+    return h('label', { class: 'day' }, box, DAY_NAMES[d]);
+  }));
+  const start = h('input', { type: 'time', value: a.start, onchange: (e) => (a.start = e.target.value) });
+  const end = h('input', { type: 'time', value: a.end, onchange: (e) => (a.end = e.target.value) });
+  const where = h('select', { onchange: (e) => { a.where = e.target.value; render(); } });
+  where.add(new Option('At home', 'home', false, a.where === 'home'));
+  where.add(new Option('Out (not in the house)', 'away', false, a.where === 'away'));
+  const busy = h('input', { type: 'checkbox', checked: a.busy, onchange: (e) => (a.busy = e.target.checked) });
+  const notice = h('select', { disabled: a.where !== 'away', onchange: (e) => (a.notice = Number(e.target.value)) });
+  for (const n of NOTICE_OPTIONS) notice.add(new Option(n ? `${n} min before` : "Don't announce", String(n), false, a.notice === n));
+  return h('div', { class: 'card stack activity' },
+    h('div', { class: 'row' }, field('Activity', nameIn), field('Where or what (optional)', noteIn)),
+    h('div', { class: 'row' }, field('Days', days)),
+    h('div', { class: 'row' }, field('From', start), field('To', end), field('Where', where),
+      h('label', { class: 'field inline' }, busy, h('span', {}, 'Busy (short replies)')),
+      field('Say it is leaving', notice)),
+    h('div', { class: 'row' }, h('span', { class: 'muted' }, a.end <= a.start ? 'Ends the next morning.' : ''),
+      h('button', { class: 'btn danger', type: 'button', onclick: () => { draft.activities = draft.activities.filter((x) => x !== a); render(); } }, 'Remove')),
+  );
+}
+
+function newId() {
+  return Math.random().toString(36).slice(2, 10);
 }
 
 // ---- Mood and conversation ---------------------------------------------------------

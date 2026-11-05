@@ -47,3 +47,12 @@ body.mind-page { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
 .status { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); margin: 0; padding: 8px 14px; border-radius: 10px; background: var(--glass); border: 1px solid var(--glass-border); }
 .status:empty { display: none; }
 .status.error { color: var(--danger); }
+
+/* Schedule tab */
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.field.inline { flex-direction: row; align-items: center; gap: 6px; align-self: flex-end; padding-bottom: 8px; }
+.mind-page input[type="time"] { font: inherit; color: var(--text); background: rgba(0, 0, 0, 0.3); border: 1px solid var(--glass-border); border-radius: 8px; padding: 7px 8px; color-scheme: dark; }
+.days { display: flex; flex-wrap: wrap; gap: 4px; }
+.day { display: flex; align-items: center; gap: 4px; padding: 4px 8px; border: 1px solid var(--glass-border); border-radius: 8px; cursor: pointer; font-size: 13px; }
+.day input { accent-color: var(--accent); }
+.activity .row { align-items: flex-end; }
