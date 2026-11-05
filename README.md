@@ -192,7 +192,7 @@ They're files in `memory/`:
 | `vectors.json` | What each memory is about, as numbers, for recall by meaning |
 | `mood.json` | How it feels right now |
 | `usage.json` | Token counts |
-| `house-seen.json` | The room as it last saw it, so it notices changes |
+| `house-seen.json` | The room as it last saw it, so it notices and reacts to changes |
 | `schedule-state.json` | Which departures it already announced |
 
 Use the Mind page while the twin is running. If you edit the files by hand, stop the twin first. Deleting the `memory/` folder wipes all of it.
@@ -221,7 +221,7 @@ The schedule is saved in `schedule.json`, which is private and left out of git a
 |---|---|
 | **Voice** | The person records 1–5 minutes of clean speech and creates a voice at https://elevenlabs.io (they should do the consent step themselves). Run `npm run setup` and paste the ElevenLabs key and voice ID. |
 | **Avatar** | Make one in [VRoid Studio](https://vroid.com/en/studio) (free), export it as `.vrm`, and put it in the `avatar/` folder. The first `.vrm` there replaces the sample. |
-| **House** | Click **House** for the time of day (or follow the clock), lamps, the view outside, colors, floor, and which furniture appears. The twin knows the room and notices when you change it. Saved in `house.json`. To move furniture, edit `public/house.js`. |
+| **House** | Click **House**. **Look** sets the time of day (or follows the clock), lamps, colors and floor. It also sets the walls (paint, stripes, dots, floral, brick, wood panels, or *your own picture* as wallpaper) and the view out the window (garden, city, lake, or *your own photo*). **Decorate** adds things from a catalog: armchair, beanbag, desk with a laptop, lamps, plants, cactus, flowers, bookcase, guitar, telescope, round rug, fish tank, speaker, a big flatscreen TV, a teddy bear, a giant toy spider, posters, a wall clock, a shelf, string lights, *your own framed photos* and *your own 3D models* (`.glb`). Drag them anywhere on the floor or walls, then turn, resize, recolor or remove them. A few seconds after you stop, the twin says whether it likes the change, by its own taste in the persona notes ("pink stripes? Absolutely not. The telescope can stay, though"). It can feel anything a person would: thrilled by a new TV, grossed out, or startled when you drop something right next to it (it reacts within a second or two). If something scares it, like a spider for a twin who's afraid of them, it's scared for real, and you'll have to comfort it; it calms down gradually. Change things while it's out, and it notices when it comes home. How it reacts depends on who it is: the same spider delights a bug lover. Settings are saved in `house.json`, and uploads in `house-assets/`. |
 
 ## Share it with someone else
 
@@ -254,6 +254,7 @@ This makes `<folder name>-share.zip` next to this folder. It contains only the a
 - **Recall by meaning:** with an OpenAI key, the last few messages and each new memory also go to OpenAI's embedding model.
 - **Voice:** each reply sentence goes to ElevenLabs when that voice is on. The Mac voice stays on the Mac.
 - **Mic:** Chrome sends voice input to Google's speech service; Safari uses Apple's.
+- **Pictures for the house:** they stay on this computer. "Describe it for me" sends that one picture to OpenAI once, and only when you click it.
 - **Everything else stays here:** memories, mood, settings and token counts are files on this computer.
 
 Agree with the person on who gets to talk to their twin, whether it's ever shown publicly, and that they can have it changed or deleted.
@@ -268,8 +269,8 @@ Agree with the person on who gets to talk to their twin, whether it's ever shown
 | `memory.js`, `mood.js`, `surroundings.js` | Memory, mood, and the room in words |
 | `rules.md` | How any twin behaves |
 | `persona/` | Who this twin is (private). `persona-template/` is the starting point. |
-| `public/` | The page: chat (`app.js`), 3D stage and avatar (`scene.js`), house (`house*.js`), Mind page (`mind.*`) |
-| `memory/`, `house.json`, `schedule.json`, `.env` | Created as you use it. `memory/`, `schedule.json` and `.env` are private. |
+| `public/` | The page: chat (`app.js`), 3D stage, avatar and dragging (`scene.js`), house (`house*.js`), decor catalog (`decor.js`), Mind page (`mind.*`) |
+| `memory/`, `house.json`, `house-assets/`, `schedule.json`, `.env` | Created as you use it. `memory/`, `house-assets/` (your uploaded pictures and models), `schedule.json` and `.env` are private. |
 
 For developers: open the page with `?debug` to try moods and body language from the browser console, like `twinDebug.mood('happy', 8)` or `twinDebug.activity('thinking')`. INTRODUCTION.md covers the design, what was tested, and ideas for next steps.
 

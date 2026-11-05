@@ -5,10 +5,11 @@
 // House panel (see house-config.js) and returns everything as one group.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { phaseFor } from './house-config.js';
+import { CATALOG, phaseFor } from './house-config.js';
+import { buildItem, pictureTexture } from './decor.js';
 
 // Living room bounds in meters. The twin stands at the origin facing the viewer (+z).
-const ROOM = { left: -3.6, right: 3.6, back: -2.6, front: 4.6, height: 2.7 };
+export const ROOM = { left: -3.6, right: 3.6, back: -2.6, front: 4.6, height: 2.7 };
 const WALL = 0.15; // thickness of the back wall, which has the openings
 const WINDOW = { x0: -2.3, x1: -0.6, y0: 0.85, y1: 2.3 };
 const DOOR = { x0: 1.0, x1: 2.0, y1: 2.15 }; // doorway to the kitchen
@@ -79,6 +80,28 @@ export function buildHouse(config) {
 
   const width = ROOM.right - ROOM.left;
   const depth = ROOM.front - ROOM.back;
+  // Walls: paint, a wallpaper pattern drawn here, or your own picture tiled like wallpaper.
+  // `world` is the back wall, whose texture coordinates are in metres; the others
+  // span 0..1 across their width and height.
+  const wallMaterial = (w, h, world = false) => {
+    const base = { roughness: 0.92, shadowSide: THREE.DoubleSide };
+    if (config.wallStyle === 'paint') return mat(config.wallColor, base);
+    if (config.wallStyle === 'image') {
+      const tile = 1.2; // metres across one copy of the picture
+      const map = pictureTexture(config.wallImage).clone();
+      map.wrapS = map.wrapT = THREE.RepeatWrapping;
+      const fit = (t) => {
+        const aspect = t.image.height / t.image.width;
+        map.repeat.set(world ? 1 / tile : w / tile, world ? 1 / (tile * aspect) : h / (tile * aspect));
+        map.needsUpdate = true;
+      };
+      pictureTexture(config.wallImage, fit);
+      textures.push(map);
+      return mat('#ffffff', { ...base, map });
+    }
+    const map = texture(512, 512, (ctx, cw, ch) => drawWallpaper(ctx, cw, ch, config.wallStyle, config.wallColor), world ? [1, 1] : [w, h]);
+    return mat('#ffffff', { ...base, map, roughness: config.wallStyle === 'panels' ? 0.6 : 0.9 });
+  };
   const wallMat = mat(config.wallColor, { roughness: 0.92, shadowSide: THREE.DoubleSide });
   const trim = mat('#f3f1ec', { roughness: 0.55 });
   const oak = mat('#b88a5e', { roughness: 0.5 });
@@ -89,7 +112,7 @@ export function buildHouse(config) {
 
   // ---- Floor, walls, ceiling --------------------------------------------------
   const floor = floorMaterial(config.floor, texture, random, [width / 2, depth / 2]);
-  add(new THREE.PlaneGeometry(width, depth), floor, [0, 0, (ROOM.back + ROOM.front) / 2], { rot: [-Math.PI / 2, 0, 0], cast: false });
+  const floorMesh = add(new THREE.PlaneGeometry(width, depth), floor, [0, 0, (ROOM.back + ROOM.front) / 2], { rot: [-Math.PI / 2, 0, 0], cast: false });
   add(new THREE.PlaneGeometry(width, depth), mat('#f6f4f0', { roughness: 0.95, shadowSide: THREE.DoubleSide }), [0, ROOM.height, (ROOM.back + ROOM.front) / 2], { rot: [Math.PI / 2, 0, 0] });
 
   // Back wall, with the window and the doorway cut out, so light really comes through.
@@ -110,11 +133,12 @@ export function buildHouse(config) {
   hole.lineTo(WINDOW.x0, WINDOW.y1);
   hole.closePath();
   outline.holes.push(hole);
-  add(new THREE.ExtrudeGeometry(outline, { depth: WALL, bevelEnabled: false }), wallMat, [0, 0, ROOM.back - WALL]);
+  const backWall = add(new THREE.ExtrudeGeometry(outline, { depth: WALL, bevelEnabled: false }), wallMaterial(width, ROOM.height, true), [0, 0, ROOM.back - WALL]);
   // Side and front walls (they disappear when the camera swings behind them).
-  add(new THREE.PlaneGeometry(depth, ROOM.height), wallMat, [ROOM.left, ROOM.height / 2, (ROOM.back + ROOM.front) / 2], { rot: [0, Math.PI / 2, 0] });
-  add(new THREE.PlaneGeometry(depth, ROOM.height), wallMat, [ROOM.right, ROOM.height / 2, (ROOM.back + ROOM.front) / 2], { rot: [0, -Math.PI / 2, 0] });
-  add(new THREE.PlaneGeometry(width, ROOM.height), wallMat, [0, ROOM.height / 2, ROOM.front], { rot: [0, Math.PI, 0] });
+  const leftWall = add(new THREE.PlaneGeometry(depth, ROOM.height), wallMaterial(depth, ROOM.height), [ROOM.left, ROOM.height / 2, (ROOM.back + ROOM.front) / 2], { rot: [0, Math.PI / 2, 0] });
+  const rightWall = add(new THREE.PlaneGeometry(depth, ROOM.height), wallMaterial(depth, ROOM.height), [ROOM.right, ROOM.height / 2, (ROOM.back + ROOM.front) / 2], { rot: [0, -Math.PI / 2, 0] });
+  add(new THREE.PlaneGeometry(width, ROOM.height), wallMaterial(width, ROOM.height), [0, ROOM.height / 2, ROOM.front], { rot: [0, Math.PI, 0] });
+  void wallMat;
 
   // Baseboards and crown molding.
   const runs = [
@@ -155,6 +179,18 @@ export function buildHouse(config) {
   // What's outside.
   const sky = texture(2048, 1024, (ctx, w, h) => drawOutside(ctx, w, h, phase, look, config.view, seeded(99)));
   add(new THREE.PlaneGeometry(20, 10), new THREE.MeshBasicMaterial({ map: sky, toneMapped: false }), [-1, 2.2, -8], { cast: false });
+  if (config.outsideImage) {
+    // Your own picture as the view: a big print a few metres behind the window, tinted
+    // for the time of day so a sunny photo still looks right at night.
+    const tint = { morning: '#ffeedd', day: '#ffffff', sunset: '#f0b58a', night: '#3a4562' }[phase];
+    const view = add(new THREE.PlaneGeometry(9, 6), new THREE.MeshBasicMaterial({ color: tint, toneMapped: false }), [wx, 1.6, -6.5], { cast: false });
+    view.material.map = pictureTexture(config.outsideImage, (t) => {
+      const aspect = t.image.height / t.image.width;
+      view.geometry.dispose();
+      view.geometry = new THREE.PlaneGeometry(Math.max(9, 6 / aspect), Math.max(9, 6 / aspect) * aspect);
+    });
+    view.material.needsUpdate = true;
+  }
 
   if (config.curtains) {
     cylinder(0.015, 0.015, ww + 1.3, metal, [wx, WINDOW.y1 + 0.2, ROOM.back + 0.14], { rot: [0, 0, Math.PI / 2] });
@@ -286,6 +322,29 @@ export function buildHouse(config) {
     picture(0.72, 0.52, [0.45, 1.6, ROOM.back + 0.02], 0, 13);
   }
 
+  // ---- Things you placed (Decorate) ------------------------------------------
+  const items = new Map();
+  const kit = {
+    mat,
+    lit,
+    shadeHex,
+    random,
+    canvas: (w, h, draw) => texture(w, h, draw),
+    light(color, intensity, [x, y, z], parent) {
+      if (!lit) return;
+      const light = new THREE.PointLight(color, intensity, 6, 1.6);
+      light.position.set(x, y, z);
+      parent.add(light);
+    },
+  };
+  for (const item of config.items) {
+    const thing = buildItem(item, kit);
+    thing.userData.itemId = item.id;
+    placeItem(thing, item);
+    group.add(thing);
+    items.set(item.id, thing);
+  }
+
   // ---- Light ----------------------------------------------------------------
   group.add(new THREE.HemisphereLight(...look.hemi));
   const [sunColor, sunIntensity, sunPos] = look.sun;
@@ -313,6 +372,8 @@ export function buildHouse(config) {
     phase,
     exposure: look.exposure,
     environmentIntensity: look.env,
+    items, // id -> the placed thing's group, for dragging
+    surfaces: { floor: floorMesh, back: backWall, left: leftWall, right: rightWall },
     dispose() {
       group.traverse((o) => {
         o.geometry?.dispose();
@@ -403,6 +464,107 @@ export function buildHouse(config) {
       add(new THREE.SphereGeometry(0.035, 16, 12), mat('#ffffff', { emissive: '#ffd9a0', emissiveIntensity: lit ? 2.5 : 0.1 }), [x, ROOM.height - 0.68, cz + 0.35], { cast: false });
     }
     pointLight(0xffd6a0, 6, [kx, 2.1, kz]);
+  }
+}
+
+// Puts a placed thing where its settings say: on the floor (turned by `rot`), or flat
+// on the back, left or right wall at height `y`. Also used live while dragging.
+export function placeItem(thing, item) {
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  thing.scale.setScalar(item.scale);
+  if (CATALOG[item.type]?.place === 'wall') {
+    const y = clamp(item.y, 0.3, ROOM.height - 0.25);
+    if (item.wall === 'left') {
+      thing.position.set(ROOM.left + 0.012, y, clamp(item.z, ROOM.back + 0.4, ROOM.front - 0.4));
+      thing.rotation.set(0, Math.PI / 2, 0);
+    } else if (item.wall === 'right') {
+      thing.position.set(ROOM.right - 0.012, y, clamp(item.z, ROOM.back + 0.4, ROOM.front - 0.4));
+      thing.rotation.set(0, -Math.PI / 2, 0);
+    } else {
+      thing.position.set(clamp(item.x, ROOM.left + 0.4, ROOM.right - 0.4), y, ROOM.back + 0.012);
+      thing.rotation.set(0, 0, 0);
+    }
+  } else {
+    thing.position.set(clamp(item.x, ROOM.left + 0.2, ROOM.right - 0.2), 0, clamp(item.z, ROOM.back + 0.2, ROOM.front - 0.2));
+    thing.rotation.set(0, (item.rot * Math.PI) / 180, 0);
+  }
+}
+
+// Wallpaper patterns, drawn on a tile that covers 1 m of wall.
+function drawWallpaper(ctx, w, h, style, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, w, h);
+  const light = shadeHex(color, 0.18);
+  const dark = shadeHex(color, -0.14);
+  if (style === 'stripes') {
+    for (let x = 0; x < w; x += w / 8) {
+      ctx.fillStyle = dark;
+      ctx.fillRect(x, 0, w / 16, h);
+      ctx.fillStyle = light;
+      ctx.fillRect(x + w / 16, 0, 3, h);
+    }
+  } else if (style === 'dots') {
+    ctx.fillStyle = dark;
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 8; x++) {
+        ctx.beginPath();
+        ctx.arc((x + (y % 2) * 0.5) * (w / 8), (y + 0.5) * (h / 8), w / 48, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  } else if (style === 'floral') {
+    for (let y = 0; y < 4; y++) {
+      for (let x = 0; x < 4; x++) {
+        const cx = (x + (y % 2) * 0.5) * (w / 4) + w / 8;
+        const cy = (y + 0.5) * (h / 4);
+        ctx.fillStyle = dark;
+        for (let p = 0; p < 6; p++) {
+          const a = (p / 6) * Math.PI * 2;
+          ctx.beginPath();
+          ctx.ellipse(cx + Math.cos(a) * 14, cy + Math.sin(a) * 14, 11, 6, a, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.fillStyle = light;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = dark;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(cx + 20, cy + 20);
+        ctx.quadraticCurveTo(cx + 40, cy + 30, cx + 50, cy + 60);
+        ctx.stroke();
+      }
+    }
+  } else if (style === 'brick') {
+    ctx.fillStyle = shadeHex('#d8d2c8', -0.1);
+    ctx.fillRect(0, 0, w, h);
+    const bh = h / 16;
+    const bw = w / 4;
+    const random = seeded(17);
+    for (let row = 0; row < 16; row++) {
+      for (let col = -1; col < 5; col++) {
+        const x = col * bw + (row % 2 ? bw / 2 : 0);
+        ctx.fillStyle = shadeHex('#a5573f', (random() - 0.5) * 0.25);
+        ctx.fillRect(x + 3, row * bh + 3, bw - 6, bh - 6);
+      }
+    }
+  } else if (style === 'panels') {
+    const pw = w / 3;
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = shadeHex('#8a6446', (i - 1) * 0.06);
+      ctx.fillRect(i * pw, 0, pw, h);
+      ctx.fillStyle = 'rgba(30,18,10,0.5)';
+      ctx.fillRect(i * pw, 0, 3, h);
+      ctx.strokeStyle = 'rgba(40,25,15,0.12)';
+      for (let g = 0; g < 8; g++) {
+        const gx = i * pw + 8 + g * (pw / 8);
+        ctx.beginPath();
+        ctx.moveTo(gx, 0);
+        ctx.bezierCurveTo(gx + 6, h * 0.3, gx - 6, h * 0.7, gx + 3, h);
+        ctx.stroke();
+      }
+    }
   }
 }
 

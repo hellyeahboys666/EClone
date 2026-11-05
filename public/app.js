@@ -73,7 +73,7 @@ async function init() {
     getActivity: () => activity,
     onProgress: (p) => (els.loading.textContent = `Loading avatar… ${Math.min(100, Math.round(p * 100))}%`),
   });
-  createHousePanel({ button: els.houseButton, panel: els.housePanel, initial: config.house, onChange: stage.setHouse });
+  createHousePanel({ button: els.houseButton, panel: els.housePanel, initial: config.house, stage, onChange: stage.setHouse, onSettled: reactToHouse });
   setPresent = stage.setPresent;
   stage.loaded
     .then(() => {
@@ -136,7 +136,7 @@ let lastStatus = '';
 async function checkSchedule() {
   const res = await fetch('/api/tick', { method: 'POST' }).catch(() => null);
   if (!res?.ok) return;
-  const { scheduled, status, line, totals } = await res.json();
+  const { scheduled, status, line, mood: felt, totals } = await res.json();
   els.statusChip.hidden = !scheduled;
   const label = status ? `${status.where === 'away' ? 'Out' : status.busy ? 'Busy' : 'Now'}: ${status.name} · until ${status.until}` : 'Free';
   els.statusChip.textContent = label;
@@ -146,10 +146,30 @@ async function checkSchedule() {
   else if (label !== lastStatus && lastStatus.startsWith('Out')) hint('');
   lastStatus = label;
   if (line && !currentTurn) {
+    if (felt) {
+      // It just came home and noticed something new.
+      mood = felt;
+      showMood();
+    }
     const caption = createCaption(addBubble('twin', ''));
     if (totals) showUsage(null, totals);
     caption.say(line);
   }
+}
+
+// After you change the house, the twin says what it thinks of it, by its own taste.
+async function reactToHouse() {
+  if (currentTurn) return; // it'll notice in its next reply instead
+  const res = await fetch('/api/house-react', { method: 'POST' }).catch(() => null);
+  if (!res?.ok) return;
+  const { line, mood: felt, totals } = await res.json();
+  if (!line || currentTurn) return;
+  if (felt) {
+    mood = felt;
+    showMood();
+  }
+  if (totals) showUsage(null, totals);
+  createCaption(addBubble('twin', '')).say(line);
 }
 
 // An earlier version kept the conversation in this browser; hand it to the server once.

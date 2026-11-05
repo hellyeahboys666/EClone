@@ -8,6 +8,7 @@ avatar/*.vrm
 media/
 reference/
 house.json
+house-assets/
 schedule.json
 *.tmp
 

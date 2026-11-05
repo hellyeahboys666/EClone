@@ -226,3 +226,19 @@ a.chip { text-decoration: none; }
 .house-panel :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .house-reset { margin-top: 8px; width: 100%; }
 .house-status { margin: 6px 0 0; min-height: 1em; font-size: 12px; color: var(--muted); }
+
+/* House panel: tabs, the catalog and the selected thing */
+.house-tabs { display: flex; gap: 6px; margin: 4px 0 10px; }
+.house-tabs button[aria-selected="true"] { color: var(--text); background: rgba(255, 255, 255, 0.16); }
+.house-tabs button[aria-selected="false"] { color: var(--muted); }
+.house-panel .stack { display: flex; flex-direction: column; gap: 8px; }
+.house-panel .card { background: rgba(255, 255, 255, 0.05); border: 1px solid var(--glass-border); border-radius: 10px; padding: 10px; }
+.house-panel .catalog { display: flex; flex-wrap: wrap; gap: 5px; }
+.house-panel button.small { padding: 3px 8px; font-size: 12px; }
+.house-panel button.danger { color: var(--danger); }
+.house-panel .row-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.house-panel input[type="text"] { font: inherit; color: var(--text); background: rgba(0, 0, 0, 0.3); border: 1px solid var(--glass-border); border-radius: 8px; padding: 5px 8px; width: 100%; }
+.house-panel input[type="range"] { width: 150px; accent-color: var(--accent); }
+.house-panel .house-picture { padding: 0 0 8px; }
+.house-panel .thumb { width: 100%; max-height: 110px; object-fit: cover; border-radius: 8px; }
+.house-help { margin: 0; color: var(--muted); font-size: 12px; }

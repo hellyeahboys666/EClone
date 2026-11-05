@@ -1,6 +1,7 @@
 // Digital twin server: serves the web app, streams replies built from the persona
 // notes (Claude or GPT), and turns reply text into speech (ElevenLabs or the Mac's `say`).
 import http from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -35,6 +36,7 @@ const config = {
   rulesFile: path.resolve(ROOT, process.env.RULES_FILE || 'rules.md'), // another file lets you try rule changes side by side
   memoryDir: path.resolve(ROOT, process.env.MEMORY_DIR || 'memory'),
   houseFile: path.resolve(ROOT, process.env.HOUSE_FILE || 'house.json'), // the House panel's settings
+  assetDir: path.resolve(ROOT, process.env.HOUSE_ASSETS_DIR || 'house-assets'), // pictures and 3D models you uploaded (private)
   scheduleFile: path.resolve(ROOT, process.env.SCHEDULE_FILE || 'schedule.json'), // the twin's weekly schedule (private)
   // openai (GPT through the API), claude (Claude through the API), or chatgpt (GPT through
   // Codex, signed in with your ChatGPT account, so it uses your ChatGPT plan; see codex.js).
@@ -203,7 +205,36 @@ async function handleTick(res) {
       }
     }
   }
-  sendJson(res, 200, { scheduled: schedule.activities.length > 0, status, line, ...(line && { totals: memory.usageSummary() }) });
+  // Back from something it went out for: it walks in and notices whatever changed
+  // while it was gone. Each return is handled once, within half an hour of it.
+  let felt = null;
+  const back = !line && now?.activity.where !== 'away'
+    ? occurrences(schedule, when).filter((o) => o.activity.where === 'away' && o.end <= when && when - o.end < 30 * 60_000).at(-1)
+    : null;
+  if (back && hasBrainKey() && !inFlight && !announcing && !reacting) {
+    const stateFile = path.join(config.memoryDir, 'schedule-state.json');
+    const state = await loadJson(stateFile, { announced: [] }).catch(() => ({ announced: [] }));
+    const returned = state.returned ?? [];
+    if (!returned.includes(back.key)) {
+      reacting = true;
+      try {
+        await saveJson(stateFile, { ...state, returned: [...returned, back.key].slice(-60) });
+        const reaction = await reactToHouse({ arriving: back.activity });
+        if (reaction) ({ line, felt } = reaction);
+      } catch (err) {
+        console.error('[schedule]', err);
+      } finally {
+        reacting = false;
+      }
+    }
+  }
+  sendJson(res, 200, {
+    scheduled: schedule.activities.length > 0,
+    status,
+    line,
+    ...(felt && { mood: moodForPage(felt) }),
+    ...(line && { totals: memory.usageSummary() }),
+  });
 }
 
 async function announceLeaving(due, when) {
@@ -599,6 +630,85 @@ async function handleOpener(res) {
   }
 }
 
+// After you change the house, the twin looks around and reacts the way it would, by
+// its own taste and nerves (from the persona notes): it might love the plant, hate the
+// wallpaper, jump at something that suddenly appeared right next to it, or come home
+// to a new TV and be thrilled. Its mood follows, and the line is saved in the
+// conversation like anything it says.
+const REACTION_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['line', 'feeling', 'intensity', 'reason'],
+  properties: {
+    line: { type: 'string' },
+    feeling: { type: 'string', enum: FEELINGS },
+    intensity: { type: 'integer' },
+    reason: { type: 'string' },
+  },
+};
+let reacting = false;
+
+// `arriving` is the activity it just came home from, or null if it was standing there.
+// Returns { line, felt }, or null when nothing changed (or nothing was said).
+async function reactToHouse({ arriving = null } = {}) {
+  const house = await loadHouse();
+  const seenFile = path.join(config.memoryDir, 'house-seen.json');
+  const seen = await loadJson(seenFile, null).catch(() => null);
+  const changes = houseChanges(seen, house);
+  if (!changes.length) return null;
+  const cue = `${changes.join('\n')}\n${memory.messages().slice(-2).map((m) => m.content).join('\n')}`;
+  const [vector, instructions, room, plans] = await Promise.all([memory.cueVector(cue), buildSystemPrompt(), surroundingsBlock(), scheduleBlock()]);
+  const system = [instructions, memoryBlock(memory.recall(cue, { vector, reinforce: false })), room, plans, `<mood>\n${mood.describe()}\n</mood>`]
+    .filter(Boolean)
+    .join('\n\n');
+  const what = arriving
+    ? `You just got home from ${arriving.name}${arriving.note ? ` (${arriving.note})` : ''} and walked in. While you were out, someone changed your home: ${changes.join('; ')}. You see it the moment you come in.`
+    : `Just now, while you were standing there, they changed your home: ${changes.join('; ')}. It happened with no warning, right in front of you.`;
+  const prompt =
+    `${what} React out loud the way you really would, in one or two short sentences. ` +
+    'How you react depends on who you are (your notes, your taste, what scares or delights you, what you said before), not on what a ' +
+    "typical person would do. A person could feel anything here: thrilled by a big new thing, delighted, curious, confused, " +
+    "annoyed it isn't their style, grossed out, startled by something that appeared out of nowhere right beside them, or genuinely " +
+    "scared of it. If it would scare you, be scared for real and let it show; don't brush it off or calm down by yourself in the " +
+    "same breath. If you like it, say so; if it isn't your style, say so your way; if they removed something you liked, you can mind. " +
+    'Also give the one feeling it leaves you with (from the list), how strongly from 0 to 10 (a real fright or a huge surprise can be ' +
+    "8 or more), and a few words on why. The line has no mood tag.";
+  const { data, usage } = await completeJson(system, prompt, REACTION_SCHEMA);
+  await memory.recordUsage('chat', usage);
+  await saveJson(seenFile, house); // seen now, so it won't bring it up again
+  const line = splitMoodTag(String(data.line ?? '').trim()).text;
+  if (!line) return null;
+  const felt = {
+    feeling: data.feeling,
+    intensity: Math.min(10, Math.max(0, Math.round(data.intensity))),
+    reason: String(data.reason ?? '').trim().slice(0, 200) || 'how the room changed',
+  };
+  await mood.set(felt);
+  await memory.addMessage({ role: 'assistant', content: line, at: Date.now(), mood: felt });
+  return { line, felt };
+}
+
+async function handleHouseReact(res) {
+  const none = () => sendJson(res, 200, { line: null });
+  if (!hasBrainKey() || inFlight || reacting) return none();
+  if (currentActivity(await loadSchedule())?.activity.where === 'away') return none(); // it'll notice when it's back
+  reacting = true;
+  try {
+    const reaction = await reactToHouse();
+    if (!reaction) return none();
+    sendJson(res, 200, { line: reaction.line, mood: moodForPage(reaction.felt), totals: memory.usageSummary() });
+  } catch (err) {
+    console.error('[house]', err);
+    none();
+  } finally {
+    reacting = false;
+  }
+}
+
+function moodForPage(felt) {
+  return { ...felt, at: Date.now(), since: Date.now(), halfLifeHours: mood.snapshot().halfLifeHours };
+}
+
 async function handleNewChat(res) {
   if (inFlight) {
     inFlight.abort.abort();
@@ -616,6 +726,61 @@ async function handleNewChat(res) {
 // The House panel's settings (time of day, colors, furniture...), kept in house.json.
 async function loadHouse() {
   return cleanHouse(await loadJson(config.houseFile, {}).catch(() => ({})));
+}
+
+// Uploads for the house: a picture (wallpaper, the view, a framed photo) or a 3D
+// model (.glb). The file's first bytes must match its type. Saved in house-assets/.
+const ASSET_TYPES = [
+  { ext: 'jpg', max: 15e6, test: (b) => b[0] === 0xff && b[1] === 0xd8 },
+  { ext: 'png', max: 15e6, test: (b) => b.subarray(0, 4).toString('hex') === '89504e47' },
+  { ext: 'webp', max: 15e6, test: (b) => b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP' },
+  { ext: 'glb', max: 40e6, test: (b) => b.subarray(0, 4).toString() === 'glTF' },
+];
+
+async function handleUploadAsset(req, res) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > 40e6) return sendJson(res, 413, { error: 'That file is too big (40 MB at most).' });
+    chunks.push(chunk);
+  }
+  const body = Buffer.concat(chunks);
+  const type = ASSET_TYPES.find((t) => t.test(body));
+  if (!type) return sendJson(res, 400, { error: 'Pictures must be JPEG, PNG or WebP, and 3D models .glb.' });
+  if (body.length > type.max) return sendJson(res, 413, { error: 'That picture is too big (15 MB at most).' });
+  const name = `${randomUUID().slice(0, 12)}.${type.ext}`;
+  await mkdir(config.assetDir, { recursive: true });
+  await writeFile(path.join(config.assetDir, name), body);
+  sendJson(res, 200, { url: `/house-assets/${name}` });
+}
+
+// Optional: a short description of an uploaded picture, so the twin knows what it
+// shows. Sends the picture to OpenAI once, only when you ask for it.
+async function handleDescribePicture(req, res) {
+  const { url } = await readJson(req);
+  const name = /^\/house-assets\/([a-z0-9-]{6,40}\.(jpg|png|webp))$/.exec(url ?? '')?.[1];
+  if (!name) return sendJson(res, 400, { error: 'Unknown picture.' });
+  if (!process.env.OPENAI_API_KEY) return sendJson(res, 400, { error: 'Describing pictures needs OPENAI_API_KEY in .env. Type a short description instead.' });
+  const bytes = await readFile(path.join(config.assetDir, name));
+  const mime = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp' }[name.split('.').pop()];
+  try {
+    const r = await openai().responses.create({
+      model: 'gpt-5.4-mini',
+      reasoning: { effort: 'low' },
+      input: [{
+        role: 'user',
+        content: [
+          { type: 'input_text', text: 'Describe this picture in one short phrase (under 12 words) for someone who can\'t see it, like "a sunset over a beach with palm trees". Only the phrase.' },
+          { type: 'input_image', image_url: `data:${mime};base64,${bytes.toString('base64')}` },
+        ],
+      }],
+    });
+    await memory.recordUsage('memory', openaiUsage(r.usage));
+    sendJson(res, 200, { description: r.output_text.trim().replace(/^"|"\.?$|\.$/g, '').slice(0, 80) });
+  } catch (err) {
+    sendJson(res, 502, { error: describeError(err) });
+  }
 }
 
 async function handleSaveHouse(req, res) {
@@ -752,6 +917,9 @@ const MIME = {
   '.png': 'image/png',
   '.ico': 'image/x-icon',
   '.vrm': 'model/gltf-binary',
+  '.glb': 'model/gltf-binary',
+  '.jpg': 'image/jpeg',
+  '.webp': 'image/webp',
 };
 
 async function serveFile(res, baseDir, urlPath) {
@@ -800,6 +968,12 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/new-chat') return await handleNewChat(res);
     if (req.method === 'POST' && pathname === '/api/opener') return await handleOpener(res);
     if (req.method === 'POST' && pathname === '/api/house') return await handleSaveHouse(req, res);
+    if (req.method === 'POST' && pathname === '/api/house-asset') return await handleUploadAsset(req, res);
+    if (req.method === 'POST' && pathname === '/api/describe-picture') return await handleDescribePicture(req, res);
+    if (req.method === 'POST' && pathname === '/api/house-react') return await handleHouseReact(res);
+    if (req.method === 'GET' && pathname.startsWith('/house-assets/')) {
+      return await serveFile(res, config.assetDir, pathname.slice('/house-assets'.length));
+    }
     if (req.method === 'POST' && pathname === '/api/tick') return await handleTick(res);
     if (req.method === 'GET' && pathname === '/api/mind') return await handleMind(res);
     if (req.method === 'POST' && pathname === '/api/mind') return await handleMindChange(req, res);

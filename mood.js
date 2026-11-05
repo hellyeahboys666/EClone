@@ -16,6 +16,7 @@ const MENTION_HOURS = 24; // a worn-off feeling is still mentioned for this long
 export const FEELINGS = [
   'calm', 'happy', 'amused', 'excited', 'proud', 'grateful', 'curious', 'surprised', 'confused',
   'skeptical', 'bored', 'tired', 'nervous', 'worried', 'sympathetic', 'embarrassed', 'annoyed', 'angry', 'hurt', 'sad',
+  'delighted', 'startled', 'scared', 'disgusted', 'relieved',
 ];
 
 export function createMood({ file }) {

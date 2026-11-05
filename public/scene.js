@@ -5,7 +5,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
-import { buildHouse } from './house.js';
+import { buildHouse, placeItem, ROOM } from './house.js';
+import { CATALOG } from './house-config.js';
 import { phaseFor } from './house-config.js';
 
 // Returns right away with setHouse() (rebuild the house with new settings) and
@@ -38,6 +39,12 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
   controls.maxAzimuthAngle = 1.2;
   controls.update();
 
+  // Decorate state (see the bottom of this function).
+  let decorating = false;
+  let selected = null;
+  let box = null;
+  let drag = null;
+  let callbacks = {};
   let house = null;
   let settings = houseSettings;
   function setHouse(next) {
@@ -48,6 +55,7 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
     }
     house = buildHouse(settings);
     scene.add(house.group);
+    highlight(selected); // keep the selection across rebuilds
     renderer.toneMappingExposure = house.exposure;
     scene.environmentIntensity = house.environmentIntensity;
   }
@@ -99,7 +107,95 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
     if (vrm.lookAt) vrm.lookAt.target = gaze;
     return vrm;
   });
-  return { setHouse, setPresent, loaded };
+  // ---- Decorate: pick things up and move them ----------------------------------
+  // In decorate mode, clicking a placed thing selects it; dragging moves it across
+  // the floor, or along whichever wall you point at. The camera only orbits when
+  // you're not holding something.
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+  function aim(event) {
+    const rect = canvas.getBoundingClientRect();
+    pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+    raycaster.setFromCamera(pointer, camera);
+  }
+
+  function highlight(id) {
+    if (box) {
+      scene.remove(box);
+      box.dispose();
+      box = null;
+    }
+    selected = id && house?.items.get(id) ? id : null;
+    if (selected && decorating) {
+      box = new THREE.BoxHelper(house.items.get(selected), 0xffd27a);
+      scene.add(box);
+    }
+  }
+
+  canvas.addEventListener('pointerdown', (event) => {
+    if (!decorating || event.button !== 0) return;
+    aim(event);
+    const hit = raycaster.intersectObjects([...house.items.values()], true)[0];
+    let id = null;
+    for (let o = hit?.object; o; o = o.parent) {
+      if (o.userData.itemId) {
+        id = o.userData.itemId;
+        break;
+      }
+    }
+    highlight(id);
+    callbacks.onSelect?.(id);
+    if (!id) return; // empty space: the camera orbits as usual
+    controls.enabled = false;
+    const item = { ...settings.items.find((i) => i.id === id) };
+    drag = { id, item, wall: CATALOG[item.type]?.place === 'wall' };
+    canvas.setPointerCapture(event.pointerId);
+  }, { capture: true });
+
+  canvas.addEventListener('pointermove', (event) => {
+    if (!drag) return;
+    aim(event);
+    const { item } = drag;
+    if (drag.wall) {
+      const walls = Object.entries(house.surfaces).filter(([name]) => name !== 'floor');
+      const hits = walls.map(([name, mesh]) => [name, raycaster.intersectObject(mesh, false)[0]]).filter(([, h]) => h).sort((a, b) => a[1].distance - b[1].distance);
+      if (!hits.length) return;
+      const [wall, h] = hits[0];
+      item.wall = wall;
+      item.y = Math.min(ROOM.height - 0.3, Math.max(0.3, h.point.y));
+      if (wall === 'back') item.x = h.point.x;
+      else item.z = h.point.z;
+    } else {
+      const point = raycaster.ray.intersectPlane(floorPlane, new THREE.Vector3());
+      if (!point) return;
+      item.x = Math.min(ROOM.right - 0.25, Math.max(ROOM.left + 0.25, point.x));
+      item.z = Math.min(ROOM.front - 0.25, Math.max(ROOM.back + 0.25, point.z));
+    }
+    placeItem(house.items.get(drag.id), item);
+    box?.update();
+  });
+
+  const drop = () => {
+    if (!drag) return;
+    const { id, item } = drag;
+    drag = null;
+    controls.enabled = true;
+    const round = (v) => Math.round(v * 100) / 100;
+    callbacks.onMove?.(id, { x: round(item.x), z: round(item.z), y: round(item.y), wall: item.wall });
+  };
+  canvas.addEventListener('pointerup', drop);
+  canvas.addEventListener('pointercancel', drop);
+
+  function setDecorating(on, handlers = callbacks) {
+    decorating = on;
+    callbacks = handlers;
+    canvas.style.cursor = on ? 'grab' : '';
+    highlight(on ? selected : null);
+  }
+
+  return { setHouse, setPresent, setDecorating, select: highlight, loaded };
 }
 
 async function loadAvatar(url, onProgress) {
@@ -120,14 +216,19 @@ async function loadAvatar(url, onProgress) {
 
 // Which of the avatar's built-in expressions each feeling shows as, and how much.
 // Quieter feelings (curious, skeptical) only touch the face.
+// A feeling can blend expressions: scared is wide eyes plus worry.
 const FACES = {
-  happy: ['happy', 1], amused: ['happy', 0.8], excited: ['happy', 1], proud: ['happy', 0.7], grateful: ['happy', 0.7],
-  curious: ['surprised', 0.4], surprised: ['surprised', 1], confused: ['surprised', 0.5],
-  skeptical: ['angry', 0.45], annoyed: ['angry', 0.8], angry: ['angry', 1],
-  bored: ['relaxed', 0.7], tired: ['relaxed', 0.9],
-  nervous: ['sad', 0.5], worried: ['sad', 0.6], sympathetic: ['sad', 0.4], embarrassed: ['sad', 0.5],
-  hurt: ['sad', 0.9], sad: ['sad', 1],
+  happy: { happy: 1 }, amused: { happy: 0.8 }, excited: { happy: 1, surprised: 0.25 }, proud: { happy: 0.7 }, grateful: { happy: 0.7 },
+  delighted: { happy: 1, surprised: 0.3 }, relieved: { relaxed: 0.7, happy: 0.3 },
+  curious: { surprised: 0.4 }, surprised: { surprised: 1 }, startled: { surprised: 1, sad: 0.2 }, confused: { surprised: 0.5 },
+  scared: { surprised: 0.7, sad: 0.6 },
+  skeptical: { angry: 0.45 }, annoyed: { angry: 0.8 }, angry: { angry: 1 }, disgusted: { angry: 0.6, sad: 0.3 },
+  bored: { relaxed: 0.7 }, tired: { relaxed: 0.9 },
+  nervous: { sad: 0.5, surprised: 0.2 }, worried: { sad: 0.6 }, sympathetic: { sad: 0.4 }, embarrassed: { sad: 0.5, happy: 0.15 },
+  hurt: { sad: 0.9 }, sad: { sad: 1 },
 };
+// Feelings the body shows too: fear and shock lean back (and fear trembles).
+const RECOIL = { scared: 1, startled: 0.8, surprised: 0.35, nervous: 0.3, disgusted: 0.4 };
 const EXPRESSIONS = ['happy', 'angry', 'sad', 'relaxed', 'surprised'];
 
 // Procedural life: breathing, relaxed arms, head drift, nods while talking,
@@ -156,8 +257,11 @@ function createMotion() {
       talking = ease(talking, level > 0.03 ? 1 : 0, 4);
       thinking = ease(thinking, activity === 'thinking' ? 1 : 0, 3);
       listening = ease(listening, activity === 'listening' ? 1 : 0, 3);
-      const [expression] = FACES[mood?.feeling] ?? [];
-      const low = (expression === 'sad' || expression === 'relaxed' ? 1 : 0) * Math.min(1, (mood?.level ?? 0) / 10);
+      const face_ = FACES[mood?.feeling] ?? {};
+      const feel = Math.min(1, (mood?.level ?? 0) / 10); // how strongly it feels it
+      const low = Math.min(1, (face_.sad ?? 0) + (face_.relaxed ?? 0)) * (face_.surprised ? 0.3 : 1) * feel;
+      const recoil = (RECOIL[mood?.feeling] ?? 0) * feel;
+      const tremble = mood?.feeling === 'scared' ? feel * Math.sin(t * 38) * 0.006 : 0;
 
       if (t > nextGlance) {
         glance = { x: (Math.random() - 0.5) * 0.5, y: (Math.random() - 0.4) * 0.25 };
@@ -170,8 +274,8 @@ function createMotion() {
       eyes.x = ease(eyes.x, target.x, 14);
       eyes.y = ease(eyes.y, target.y, 14);
 
-      bone('spine')?.rotation.set(breathe * 0.012, 0, 0);
-      bone('chest')?.rotation.set(breathe * 0.015, 0, 0);
+      bone('spine')?.rotation.set(breathe * 0.012 + recoil * 0.07 + tremble, tremble * 0.5, 0);
+      bone('chest')?.rotation.set(breathe * (0.015 + recoil * 0.02), 0, tremble);
       bone('leftUpperArm')?.rotation.set(0, 0, -1.22 + breathe * 0.015);
       bone('rightUpperArm')?.rotation.set(0, 0, 1.22 - breathe * 0.015);
       bone('leftLowerArm')?.rotation.set(0, -0.28, 0);
@@ -179,7 +283,7 @@ function createMotion() {
       // Listening nods: a small dip every couple of seconds.
       const nod = listening * Math.max(0, Math.sin(t * 2.6)) ** 6 * 0.07;
       bone('head')?.rotation.set(
-        Math.sin(t * 0.7) * 0.03 + talking * Math.sin(t * 5.3) * 0.035 - nod - low * 0.09 + thinking * 0.06,
+        Math.sin(t * 0.7) * 0.03 + talking * Math.sin(t * 5.3) * 0.035 - nod - low * 0.09 + thinking * 0.06 + recoil * 0.05 + tremble,
         Math.sin(t * 0.45) * 0.08 * (1 - listening * 0.6) + thinking * 0.12,
         Math.sin(t * 0.6) * 0.02 + listening * 0.06,
       );
@@ -203,10 +307,10 @@ function createMotion() {
 
       // Mood: ease toward the feeling's expression. It's softened while talking,
       // because some expressions hold the mouth still.
-      const scale = FACES[mood?.feeling]?.[1] ?? 0;
-      const strength = Math.min(1, (mood?.level ?? 0) / 10) * 0.75 * scale * (1 - 0.4 * talking);
+      const strength = feel * 0.75 * (1 - 0.4 * talking);
       for (const e of EXPRESSIONS) {
-        shown[e] += ((e === expression ? strength : 0) - shown[e]) * Math.min(1, dt * 2.5);
+        // A startle snaps onto the face; other feelings ease in.
+        shown[e] += ((face_[e] ?? 0) * strength - shown[e]) * Math.min(1, dt * (recoil > 0.5 ? 9 : 2.5));
         face?.setValue(e, shown[e]);
       }
       return eyes; // where the eyes should look, relative to the viewer
