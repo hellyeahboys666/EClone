@@ -198,3 +198,7 @@ Agree with the person on who gets to talk to their twin, whether it's ever shown
 | `memory/`, `house.json`, `.env` | Created as you use it. `memory/` and `.env` are private. |
 
 For developers: open the page with `?debug` to try moods and body language from the browser console, like `twinDebug.mood('happy', 8)` or `twinDebug.activity('thinking')`. INTRODUCTION.md covers the design, what was tested, and ideas for next steps.
+
+## License
+
+MIT, see [LICENSE](LICENSE). This covers the code only; persona notes, memories, voices and avatars you add stay yours and aren't part of the repository.
