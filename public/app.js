@@ -13,6 +13,8 @@ const els = {
   tokenChip: document.getElementById('token-chip'),
   newChat: document.getElementById('new-chat'),
   houseButton: document.getElementById('house-button'),
+  viewRoom: document.getElementById('view-room'),
+  viewTwin: document.getElementById('view-twin'),
   housePanel: document.getElementById('house-panel'),
   loading: document.getElementById('loading'),
   log: document.getElementById('log'),
@@ -73,6 +75,11 @@ async function init() {
     getActivity: () => activity,
     onProgress: (p) => (els.loading.textContent = `Loading avatar… ${Math.min(100, Math.round(p * 100))}%`),
   });
+  // Camera: look down on the whole room, or go back to facing the twin.
+  els.viewRoom.addEventListener('click', () => stage.view('room'));
+  els.viewTwin.addEventListener('click', () => stage.view('twin'));
+  els.canvas.addEventListener('viewchange', (event) => (els.viewTwin.hidden = !event.detail.away));
+
   createHousePanel({ button: els.houseButton, panel: els.housePanel, initial: config.house, stage, onChange: stage.setHouse, onSettled: reactToHouse });
   setPresent = stage.setPresent;
   stage.loaded

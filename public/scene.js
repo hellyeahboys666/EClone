@@ -27,17 +27,46 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
   const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
   const startAspect = window.innerWidth / window.innerHeight;
   camera.position.set(0, 1.42, 2.9 * Math.max(1, 1 / Math.sqrt(startAspect)));
+  // Look anywhere: drag to turn around (all the way), scroll or pinch to zoom, and
+  // right-drag (or two fingers) to slide. The camera stays inside the room's walls,
+  // but can rise through the ceiling to look down on the whole room.
   const controls = new OrbitControls(camera, canvas);
   controls.target.set(0, 1.18, 0);
-  controls.enablePan = false;
   controls.enableDamping = true;
-  controls.minDistance = 1;
-  controls.maxDistance = 5;
-  controls.minPolarAngle = 0.9;
-  controls.maxPolarAngle = 1.75;
-  controls.minAzimuthAngle = -1.2;
-  controls.maxAzimuthAngle = 1.2;
+  controls.screenSpacePanning = true;
+  controls.minDistance = 0.6;
+  controls.maxDistance = 16;
+  controls.minPolarAngle = 0.02;
+  controls.maxPolarAngle = 1.72;
   controls.update();
+  const VIEWS = {
+    twin: { position: camera.position.clone(), target: controls.target.clone() },
+    room: { position: new THREE.Vector3(0, 15, 3.0), target: new THREE.Vector3(0, 0, 0.55) },
+  };
+  const INSIDE = { left: ROOM.left + 0.15, right: ROOM.right - 0.15, back: ROOM.back + 0.15, front: ROOM.front - 0.15 };
+  let flight = null; // { position, target } the camera is gliding to
+  controls.addEventListener('start', () => (flight = null)); // you took over
+  function view(name) {
+    flight = VIEWS[name] ?? null;
+  }
+  // Keeps the camera in the room and says whether it's away from the usual view.
+  let away = false;
+  function steady(dt) {
+    if (flight) {
+      const k = Math.min(1, dt * 4);
+      camera.position.lerp(flight.position, k);
+      controls.target.lerp(flight.target, k);
+      if (camera.position.distanceTo(flight.position) < 0.01 && controls.target.distanceTo(flight.target) < 0.01) flight = null;
+    }
+    const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+    controls.target.set(clamp(controls.target.x, INSIDE.left, INSIDE.right), clamp(controls.target.y, 0, ROOM.height), clamp(controls.target.z, INSIDE.back, INSIDE.front));
+    camera.position.set(clamp(camera.position.x, INSIDE.left, INSIDE.right), clamp(camera.position.y, 0.2, 16), clamp(camera.position.z, INSIDE.back, INSIDE.front));
+    const now = camera.position.distanceTo(VIEWS.twin.position) > 0.3 || controls.target.distanceTo(VIEWS.twin.target) > 0.3;
+    if (now !== away) {
+      away = now;
+      canvas.dispatchEvent(new CustomEvent('viewchange', { detail: { away } }));
+    }
+  }
 
   // Decorate state (see the bottom of this function).
   let decorating = false;
@@ -90,6 +119,7 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
       vrm.update(dt);
     }
     controls.update();
+    steady(dt);
     renderer.render(scene, camera);
   });
 
@@ -195,7 +225,7 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
     highlight(on ? selected : null);
   }
 
-  return { setHouse, setPresent, setDecorating, select: highlight, loaded };
+  return { setHouse, setPresent, setDecorating, select: highlight, view, loaded };
 }
 
 async function loadAvatar(url, onProgress) {

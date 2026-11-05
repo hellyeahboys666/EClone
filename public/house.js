@@ -4,7 +4,6 @@
 // there are no image files to download. buildHouse() takes the settings from the
 // House panel (see house-config.js) and returns everything as one group.
 import * as THREE from 'three';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { CATALOG, phaseFor } from './house-config.js';
 import { buildItem, pictureTexture } from './decor.js';
 
@@ -57,7 +56,6 @@ export function buildHouse(config) {
     return mesh;
   };
   const box = (w, h, d, material, pos, opts) => add(new THREE.BoxGeometry(w, h, d), material, pos, opts);
-  const rounded = (w, h, d, r, material, pos, opts) => add(new RoundedBoxGeometry(w, h, d, 3, r), material, pos, opts);
   const cylinder = (rTop, rBottom, h, material, pos, opts) => add(new THREE.CylinderGeometry(rTop, rBottom, h, 24), material, pos, opts);
   // Thin things laid on a surface (a picture on its mat, a rug on the floor, a light
   // in the ceiling): drawn in front of what's behind them, so the two never flicker.
@@ -105,10 +103,8 @@ export function buildHouse(config) {
   const wallMat = mat(config.wallColor, { roughness: 0.92, shadowSide: THREE.DoubleSide });
   const trim = mat('#f3f1ec', { roughness: 0.55 });
   const oak = mat('#b88a5e', { roughness: 0.5 });
-  const walnut = mat('#5c4231', { roughness: 0.45 });
   const metal = mat('#2a2a2c', { roughness: 0.4, metalness: 0.6 });
   const steel = mat('#c8ccd1', { roughness: 0.28, metalness: 0.75 });
-  const shade = mat('#efe5d3', { side: THREE.DoubleSide, emissive: '#ffcf8f', emissiveIntensity: lit ? 1.1 : 0 });
 
   // ---- Floor, walls, ceiling --------------------------------------------------
   const floor = floorMaterial(config.floor, texture, random, [width / 2, depth / 2]);
@@ -233,93 +229,10 @@ export function buildHouse(config) {
     add(new THREE.CircleGeometry(0.06, 24), downlight, [x, ROOM.height - 0.003, z], { rot: [Math.PI / 2, 0, 0], cast: false });
   }
 
-  // ---- Furniture ------------------------------------------------------------
-  // Rug in the middle of the room.
-  const rug = texture(1024, 720, (ctx, w, h) => drawRug(ctx, w, h, config.rugColor, seeded(5)));
-  add(new THREE.PlaneGeometry(3.0, 2.1), overlay(mat('#ffffff', { map: rug, roughness: 1 })), [0.6, 0.004, 0.5], { rot: [-Math.PI / 2, 0, 0], cast: false });
-
-  // Sofa against the right wall, facing into the room.
-  const fabric = mat(config.sofaColor, { roughness: 0.95 });
-  const fabricDark = mat(shadeHex(config.sofaColor, -0.12), { roughness: 0.95 });
-  const sz = 0.4;
-  rounded(0.95, 0.36, 2.3, 0.05, fabricDark, [3.05, 0.26, sz]);
-  rounded(0.24, 0.62, 2.3, 0.06, fabricDark, [3.46, 0.62, sz]);
-  for (const z of [sz - 1.12, sz + 1.12]) rounded(0.97, 0.6, 0.2, 0.06, fabric, [3.05, 0.42, z]); // a bit wider than the base: no shared faces
-  for (const z of [sz - 0.5, sz + 0.5]) {
-    rounded(0.72, 0.15, 0.98, 0.06, fabric, [2.98, 0.5, z]);
-    rounded(0.2, 0.46, 0.98, 0.08, fabric, [3.3, 0.8, z], { rot: [0, 0, 0.18] });
-  }
-  const pillow = mat(shadeHex(config.rugColor, 0.08), { roughness: 0.95 });
-  rounded(0.14, 0.36, 0.36, 0.07, pillow, [3.15, 0.74, sz - 0.88], { rot: [0.3, 0, 0.25] });
-  rounded(0.14, 0.32, 0.32, 0.07, mat('#e8e2d4', { roughness: 0.95 }), [3.15, 0.72, sz + 0.86], { rot: [-0.25, 0, 0.25] });
-  for (const [x, z] of [[2.65, sz - 1.1], [3.45, sz - 1.1], [2.65, sz + 1.1], [3.45, sz + 1.1]]) cylinder(0.025, 0.02, 0.08, walnut, [x, 0.04, z]);
-
-  // Coffee table with a few things on it.
-  rounded(0.62, 0.05, 1.15, 0.015, oak, [2.0, 0.42, sz]);
-  for (const [x, z] of [[1.75, sz - 0.5], [2.25, sz - 0.5], [1.75, sz + 0.5], [2.25, sz + 0.5]]) cylinder(0.018, 0.014, 0.4, walnut, [x, 0.2, z]);
-  box(0.2, 0.03, 0.28, mat('#3d5a73'), [2.02, 0.46, sz - 0.2], { rot: [0, 0.2, 0] });
-  box(0.18, 0.025, 0.25, mat('#c9b48a'), [2.02, 0.487, sz - 0.18], { rot: [0, -0.1, 0] });
-  cylinder(0.04, 0.035, 0.09, mat('#f2efe9', { roughness: 0.3 }), [1.95, 0.49, sz + 0.25]);
-
-  // Side table with a lamp, next to the sofa.
-  cylinder(0.26, 0.26, 0.03, oak, [3.05, 0.56, -1.2]);
-  cylinder(0.03, 0.03, 0.55, metal, [3.05, 0.28, -1.2]);
-  cylinder(0.18, 0.18, 0.02, metal, [3.05, 0.01, -1.2]);
-  add(new THREE.SphereGeometry(0.09, 24, 16), mat('#c9b9a3', { roughness: 0.35 }), [3.05, 0.66, -1.2]);
-  cylinder(0.12, 0.15, 0.2, shade, [3.05, 0.86, -1.2]);
-  pointLight(0xffc27e, 4, [3.05, 0.84, -1.2]);
-
-  // Floor lamp in the corner by the window.
-  cylinder(0.16, 0.16, 0.03, metal, [-3.15, 0.015, -2.15]);
-  cylinder(0.012, 0.012, 1.5, metal, [-3.15, 0.77, -2.15]);
-  cylinder(0.2, 0.24, 0.3, shade, [-3.15, 1.6, -2.15]);
-  pointLight(0xffbf78, 7, [-3.15, 1.55, -2.15]);
-
-  if (config.tv) {
-    rounded(0.42, 0.5, 1.8, 0.01, walnut, [-3.37, 0.27, 0.7]);
-    box(0.005, 0.4, 0.004, metal, [-3.155, 0.27, 0.7]);
-    box(0.04, 0.8, 1.4, metal, [-3.56, 1.32, 0.7]);
-    add(new THREE.PlaneGeometry(1.36, 0.76), overlay(mat('#07080a', { roughness: 0.12, metalness: 0.3 })), [-3.536, 1.32, 0.7], { rot: [0, Math.PI / 2, 0], cast: false });
-    box(0.08, 0.07, 0.7, metal, [-3.3, 0.555, 0.7]);
-  }
-
-  if (config.bookshelf) {
-    const x = -3.42;
-    const shelf = oak;
-    for (const z of [-1.75, -0.65]) box(0.36, 2.0, 0.03, shelf, [x, 1.0, z]);
-    box(0.02, 2.0, 1.1, shelf, [ROOM.left + 0.01, 1.0, -1.2]);
-    const levels = [0.06, 0.48, 0.88, 1.28, 1.68, 1.985];
-    for (const y of levels) box(0.36, 0.03, 1.07, shelf, [x, y, -1.2]);
-    const spines = ['#8c3b2f', '#2f4d6e', '#c9a54a', '#4e7454', '#6d4c7d', '#d8d2c4', '#24324a', '#a86a3c', '#7d8c95'];
-    for (const y of levels.slice(0, 4)) {
-      let z = -1.72;
-      const end = -0.68 - (random() < 0.5 ? 0.25 : 0);
-      while (z < end) {
-        const t = 0.025 + random() * 0.03;
-        const h = 0.2 + random() * 0.1;
-        if (z + t > -0.67) break; // the last book would poke through the side panel
-        box(0.22, h, t, mat(pick(spines, random), { roughness: 0.7 }), [x + 0.03, y + 0.015 + h / 2, z + t / 2]);
-        z += t + 0.004;
-      }
-    }
-    cylinder(0.05, 0.07, 0.22, mat('#d9cdb8', { roughness: 0.3 }), [x, 1.69 + 0.11, -0.9]);
-    add(new THREE.SphereGeometry(0.07, 20, 14), mat('#2f5a4c', { roughness: 0.4 }), [x, 1.74, -1.5]);
-  }
-
-  if (config.plants) {
-    plant(2.75, -2.2, 1.6, 22, '#d9d2c6');
-    plant(-3.25, 1.95, 0.9, 12, '#b9714f');
-    // A small one on the window sill.
-    pot(0.06, 0.05, 0.09, '#c8a07c', [WINDOW.x1 - 0.3, SILL_TOP, ROOM.back + 0.08], 0.014);
-    for (let i = 0; i < 6; i++) {
-      add(new THREE.IcosahedronGeometry(0.035, 0), mat('#5f8f5a', { roughness: 0.7 }), [WINDOW.x1 - 0.3 + (random() - 0.5) * 0.07, WINDOW.y0 + 0.12 + random() * 0.04, ROOM.back + 0.08 + (random() - 0.5) * 0.07]);
-    }
-  }
-
-  if (config.art) {
-    picture(0.6, 0.78, [ROOM.right - 0.02, 1.62, sz - 0.42], -Math.PI / 2, 11);
-    picture(0.6, 0.78, [ROOM.right - 0.02, 1.62, sz + 0.42], -Math.PI / 2, 12);
-    picture(0.72, 0.52, [0.45, 1.6, ROOM.back + 0.02], 0, 13);
+  // ---- The window sill's little plant (everything else in the room is an item) ----
+  pot(0.06, 0.05, 0.09, '#c8a07c', [WINDOW.x1 - 0.3, SILL_TOP, ROOM.back + 0.08], 0.014);
+  for (let i = 0; i < 6; i++) {
+    add(new THREE.IcosahedronGeometry(0.035, 0), mat('#5f8f5a', { roughness: 0.7 }), [WINDOW.x1 - 0.3 + (random() - 0.5) * 0.07, WINDOW.y0 + 0.12 + random() * 0.04, ROOM.back + 0.08 + (random() - 0.5) * 0.07]);
   }
 
   // ---- Things you placed (Decorate) ------------------------------------------
@@ -329,6 +242,9 @@ export function buildHouse(config) {
     lit,
     shadeHex,
     random,
+    seeded,
+    drawRug,
+    drawArt,
     canvas: (w, h, draw) => texture(w, h, draw),
     light(color, intensity, [x, y, z], parent) {
       if (!lit) return;
@@ -391,36 +307,7 @@ export function buildHouse(config) {
     group.add(light);
   }
 
-  function plant(x, z, height, leafCount, potColor) {
-    const potR = 0.12 + height * 0.06;
-    const soil = pot(potR, potR * 0.8, 0.36, potColor, [x, 0, z], 0.035);
-    const stemTop = height - 0.04;
-    cylinder(0.012, 0.016, stemTop - soil, mat('#5a4430'), [x, (soil + stemTop) / 2, z]);
-    const leaf = new THREE.SphereGeometry(1, 14, 10);
-    for (let i = 0; i < leafCount; i++) {
-      const t = 0.25 + (i / leafCount) * 0.75;
-      const angle = i * 2.4 + random();
-      const reach = 0.08 + random() * 0.12;
-      const mesh = add(
-        leaf.clone(),
-        mat(shadeHex('#3f7a46', (random() - 0.5) * 0.25), { roughness: 0.6 }),
-        [x + Math.cos(angle) * reach, 0.36 + t * (height - 0.3), z + Math.sin(angle) * reach],
-        { rot: [random() * 0.8 - 0.4, -angle, 0.5 + random() * 0.4] },
-      );
-      mesh.scale.set(0.12 + random() * 0.05, 0.015, 0.075 + random() * 0.03);
-    }
-  }
 
-  function picture(w, h, [x, y, z], turn, seed) {
-    const art = texture(512, Math.round(512 * (h / w)), (ctx, cw, ch) => drawArt(ctx, cw, ch, [config.rugColor, config.sofaColor], seeded(seed)));
-    const frame = new THREE.Group();
-    frame.position.set(x, y, z);
-    frame.rotation.y = turn;
-    group.add(frame);
-    add(new THREE.BoxGeometry(w, h, 0.03), mat('#2b2622', { roughness: 0.5 }), [0, 0, 0.015], { parent: frame });
-    add(new THREE.PlaneGeometry(w - 0.05, h - 0.05), overlay(mat('#f4f1ea', { roughness: 0.9 })), [0, 0, 0.033], { parent: frame, cast: false });
-    add(new THREE.PlaneGeometry(w - 0.16, h - 0.16), overlay(mat('#ffffff', { map: art, roughness: 0.85 })), [0, 0, 0.036], { parent: frame, cast: false });
-  }
 
   function buildKitchen() {
     const kw = KITCHEN.right - KITCHEN.left;

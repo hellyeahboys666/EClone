@@ -5,8 +5,13 @@
 // Besides the simple settings below, a house has:
 //   wallImage / wallImageLabel      your own picture as wallpaper (wallStyle 'image')
 //   outsideImage / outsideLabel     your own picture as the view out of the window
-//   items                           things you placed: [{ id, type, x, z, y, wall, rot, scale, color, image, model, label }]
+//   items                           everything in the room that can be moved, including the
+//                                   furniture it starts with: [{ id, type, x, z, y, wall, rot, scale, color, image, model, label }]
 // Pictures and models are uploaded to house-assets/ and referenced as /house-assets/<file>.
+//
+// Houses saved before the furniture could be moved (no `layout: 2`) had it built in,
+// switched by the TV/Bookshelf/Plants/Pictures toggles and the sofa and rug colors.
+// cleanHouse turns those into items, so the room looks the same and everything moves.
 
 export const WALL_STYLES = [
   ['paint', 'Plain paint'], ['stripes', 'Striped wallpaper'], ['dots', 'Polka-dot wallpaper'], ['floral', 'Floral wallpaper'],
@@ -20,19 +25,23 @@ export const HOUSE_FIELDS = [
   { key: 'wallColor', label: 'Walls', type: 'color' },
   { key: 'wallStyle', label: 'Wall finish', type: 'choice', options: WALL_STYLES },
   { key: 'floor', label: 'Floor', type: 'choice', options: [['oak', 'Light oak'], ['walnut', 'Walnut'], ['tile', 'Stone tile'], ['carpet', 'Carpet']] },
-  { key: 'sofaColor', label: 'Sofa', type: 'color' },
-  { key: 'rugColor', label: 'Rug', type: 'color' },
   { key: 'kitchen', label: 'Kitchen through the doorway', type: 'toggle' },
-  { key: 'tv', label: 'TV', type: 'toggle' },
-  { key: 'bookshelf', label: 'Bookshelf', type: 'toggle' },
-  { key: 'plants', label: 'Plants', type: 'toggle' },
-  { key: 'art', label: 'Pictures on the walls', type: 'toggle' },
   { key: 'curtains', label: 'Curtains', type: 'toggle' },
 ];
 
 // Things you can place. `place` is the floor or a wall; `color` is the default for
 // things you can recolor; `image` and `model` need an uploaded picture or 3D model.
 export const CATALOG = {
+  sofa: { name: 'sofa', place: 'floor', color: '#56677a' },
+  'coffee-table': { name: 'coffee table', place: 'floor' },
+  'lamp-table': { name: 'side table with a lamp', place: 'floor' },
+  'corner-lamp': { name: 'tall floor lamp', place: 'floor' },
+  'tv-console': { name: 'TV on a low console', place: 'floor' },
+  bookshelf: { name: 'tall bookshelf full of books', place: 'floor' },
+  'house-plant': { name: 'leafy plant', place: 'floor' },
+  rug: { name: 'patterned rug', place: 'floor', color: '#a3553f' },
+  print: { name: 'framed abstract print', place: 'wall', color: '#a3553f' },
+  'print-wide': { name: 'wide abstract print', place: 'wall', color: '#a3553f' },
   armchair: { name: 'armchair', place: 'floor', color: '#8a6f5a' },
   beanbag: { name: 'beanbag', place: 'floor', color: '#c9772f' },
   'side-table': { name: 'side table', place: 'floor' },
@@ -69,13 +78,7 @@ export const HOUSE_DEFAULTS = {
   wallColor: '#e6e0d6',
   wallStyle: 'paint',
   floor: 'oak',
-  sofaColor: '#56677a',
-  rugColor: '#a3553f',
   kitchen: true,
-  tv: true,
-  bookshelf: true,
-  plants: true,
-  art: true,
   curtains: true,
   wallImage: null,
   wallImageLabel: '',
@@ -104,7 +107,10 @@ export function cleanHouse(input) {
   out.outsideLabel = text(input?.outsideLabel, 80);
   if (out.wallStyle === 'image' && !out.wallImage) out.wallStyle = 'paint';
   const seen = new Set();
-  for (const raw of Array.isArray(input?.items) ? input.items.slice(0, MAX_ITEMS) : []) {
+  const items = Array.isArray(input?.items) ? input.items : [];
+  const all = input?.layout === 2 ? items : [...startingFurniture(input), ...items];
+  out.layout = 2;
+  for (const raw of all.slice(0, MAX_ITEMS)) {
     const item = cleanItem(raw);
     if (item && !seen.has(item.id)) {
       seen.add(item.id);
@@ -139,6 +145,30 @@ function cleanItem(raw) {
     item.model = raw.model;
   }
   return item;
+}
+
+// The furniture a house starts with, where it always stood. For an older house, its
+// toggles and colors say which pieces it had and what color the sofa and rug were.
+export function startingFurniture(old = {}) {
+  const has = (key) => old?.[key] !== false;
+  const hex = (value, fallback) => (typeof value === 'string' && HEX.test(value) ? value.toLowerCase() : fallback);
+  const rugColor = hex(old?.rugColor, '#a3553f');
+  const floor = (id, type, x, z, rot = 0, more = {}) => ({ id, type, x, z, y: 1.5, rot, scale: 1, label: '', ...more });
+  const wall = (id, type, wallName, along, y) => ({ id, type, x: wallName === 'back' ? along : 0, z: wallName === 'back' ? 0 : along, y, rot: 0, scale: 1, label: '', wall: wallName, color: rugColor });
+  return [
+    floor('startrug', 'rug', 0.6, 0.5, 0, { color: rugColor }),
+    floor('startsofa', 'sofa', 3.0, 0.4, -90, { color: hex(old?.sofaColor, '#56677a') }),
+    floor('starttable', 'coffee-table', 2.0, 0.4, -90),
+    floor('startlamptable', 'lamp-table', 3.05, -1.2),
+    floor('startlamp', 'corner-lamp', -3.15, -2.15),
+    has('tv') && floor('starttv', 'tv-console', -3.3, 0.7, 90),
+    has('bookshelf') && floor('startshelf', 'bookshelf', -3.38, -1.2, 90),
+    has('plants') && floor('startplant', 'house-plant', 2.75, -2.2),
+    has('plants') && floor('startplant2', 'house-plant', -3.25, 1.95, 0, { scale: 0.6 }),
+    has('art') && wall('startprint', 'print', 'right', -0.02, 1.62),
+    has('art') && wall('startprint2', 'print', 'right', 0.82, 1.62),
+    has('art') && wall('startprint3', 'print-wide', 'back', 0.45, 1.6),
+  ].filter(Boolean);
 }
 
 export function newItemId() {

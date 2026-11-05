@@ -1,12 +1,13 @@
 // The House panel, in two tabs:
 //   Look      time of day, lamps, colors, floor, wall finish (patterns or your own
 //             picture as wallpaper), your own picture as the view, what's shown
-//   Decorate  add things from a catalog (or your own photos and 3D models), drag them
-//             around in the room, and change the selected one
+//   Decorate  everything in the room, the furniture it started with included: add things
+//             from a catalog (or your own photos and 3D models), drag anything around,
+//             and turn, resize, recolor or remove the selected one
 // Every change shows up in the 3D house right away and is saved to house.json a moment
 // later. A few seconds after you stop changing things, the twin says what it thinks
 // (onSettled).
-import { CATALOG, HOUSE_DEFAULTS, HOUSE_FIELDS, cleanHouse, newItemId } from './house-config.js';
+import { CATALOG, HOUSE_DEFAULTS, HOUSE_FIELDS, cleanHouse, newItemId, startingFurniture } from './house-config.js';
 
 export function createHousePanel({ button, panel, initial, stage, onChange, onSettled }) {
   let settings = cleanHouse(initial);
@@ -120,17 +121,27 @@ export function createHousePanel({ button, panel, initial, stage, onChange, onSe
       } }, '3D model (.glb)…'),
     ];
     const item = settings.items.find((i) => i.id === selected);
+    const missing = startingFurniture().filter((s) => !settings.items.some((i) => i.id === s.id));
     return h('div', { class: 'stack' },
-      h('p', { class: 'house-help' }, 'Add something, then drag it around the room. Click a thing to change it. Wall things slide along any wall.'),
+      h('p', { class: 'house-help' }, 'Everything in the room can be moved, the sofa, TV, rug and pictures too: click a thing, then drag it. Wall things slide along any wall. Drag empty space to look around, scroll to zoom, right-drag to slide.'),
+      h('div', { class: 'row-buttons' },
+        h('button', { type: 'button', class: 'small', onclick: () => stage.view('room') }, 'See the whole room'),
+        h('button', { type: 'button', class: 'small', onclick: () => stage.view('twin') }, 'Back to the twin')),
       h('div', { class: 'catalog' }, adds, own),
-      item ? itemEditor(item) : h('p', { class: 'house-help' }, settings.items.length ? `${settings.items.length} things added. Click one in the room to change it.` : 'Nothing added yet.'),
+      item ? itemEditor(item) : h('p', { class: 'house-help' }, settings.items.length ? `${settings.items.length} things in the room. Click one to change it.` : 'The room is empty.'),
+      missing.length
+        ? h('button', { type: 'button', class: 'house-reset', onclick: () => {
+            update({ items: [...settings.items, ...missing] });
+            render();
+          } }, 'Put the original furniture back')
+        : null,
       settings.items.length
         ? h('button', { type: 'button', class: 'house-reset', onclick: () => {
-            if (!confirm(`Remove all ${settings.items.length} things you added?`)) return;
+            if (!confirm(`Take all ${settings.items.length} things out of the room, furniture included?`)) return;
             update({ items: [] });
             selected = null;
             render();
-          } }, 'Remove everything I added')
+          } }, 'Empty the room')
         : null,
     );
   }

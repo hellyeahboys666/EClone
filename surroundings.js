@@ -1,7 +1,7 @@
 // Puts the house (the House panel's settings, see public/house-config.js) into
 // words, so the twin knows the room it's standing in, and notices when something
 // changed since it last spoke, the way a person notices a repainted wall.
-import { CATALOG, WALL_STYLES, phaseFor } from './public/house-config.js';
+import { CATALOG, WALL_STYLES, cleanHouse, phaseFor } from './public/house-config.js';
 
 const VIEWS = { garden: 'a garden with a lawn, trees and a white fence', city: 'city buildings', lake: 'a lake with hills behind it' };
 const FLOORS = { oak: 'light oak floorboards', walnut: 'dark walnut floorboards', tile: 'stone tiles', carpet: 'carpet' };
@@ -10,16 +10,17 @@ const OUTSIDE = { morning: 'early morning light', day: 'daylight', sunset: 'a su
 export function describeHouse(house, now = new Date()) {
   const phase = phaseFor(house.timeOfDay, now);
   const lit = house.lights === 'on' || (house.lights === 'auto' && (phase === 'sunset' || phase === 'night'));
+  // Left and right are the twin's own: it faces you, so your left is its right.
+  const things = house.items ?? [];
   const lines = [
-    `You're standing in the middle of a living room with ${walls(house)} and ${FLOORS[house.floor]}, on a ${colorName(house.rugColor)} patterned rug.`,
-    `Behind you on the left is a big window${house.curtains ? ' with linen curtains' : ''}, a small plant on the sill, looking out on ${outside(house)}. Outside it's ${OUTSIDE[phase]}.`,
+    `You're standing in the middle of a living room with ${walls(house)} and ${FLOORS[house.floor]}, facing the person you're talking to.`,
+    `Behind you on your right is a big window${house.curtains ? ' with linen curtains' : ''}, a small plant on the sill, looking out on ${outside(house)}. Outside it's ${OUTSIDE[phase]}.`,
     house.kitchen
-      ? 'Behind you on the right, an open doorway leads into a kitchen with white cabinets, a fridge, pendant lights and a bowl of oranges on the counter.'
-      : 'Behind you on the right is a closed door.',
-    `To your left, along the side wall: ${list([house.tv && 'a TV on a low wooden console', house.bookshelf && 'a tall bookshelf full of books', 'a floor lamp in the corner'])}.`,
-    `To your right: a ${colorName(house.sofaColor)} sofa with pillows, a coffee table with a couple of books and a mug, and a side table with a lamp${house.art ? ', with two framed abstract prints above the sofa' : ''}.`,
-    [house.plants && 'A tall leafy plant stands in the back corner.', house.art && 'An abstract print hangs on the back wall.'].filter(Boolean).join(' '),
-    house.items?.length ? `Things that were added to the room: ${list(house.items.slice(0, 30).map((i) => `${itemName(i)} ${where(i)}`))}.` : '',
+      ? 'Behind you on your left, an open doorway leads into a kitchen with white cabinets, a fridge, pendant lights and a bowl of oranges on the counter.'
+      : 'Behind you on your left is a closed door.',
+    things.length
+      ? `Around the room: ${things.slice(0, 40).map((i) => `${itemName(i)} ${where(i)}`).join('; ')}.`
+      : 'Apart from that the room is completely empty: no furniture at all.',
     lit ? 'The lamps are on.' : phase === 'night' ? 'The lamps are off, so the room is dark apart from the moonlight.' : 'The lamps are off; the light comes from the window.',
   ];
   return lines.filter(Boolean).join(' ');
@@ -28,20 +29,19 @@ export function describeHouse(house, now = new Date()) {
 // What changed between two sets of settings, in words, or [] if nothing did.
 export function houseChanges(before, after) {
   if (!before) return [];
+  before = cleanHouse(before); // an older save, with the furniture built in, reads the same
   const out = [];
   const swap = (key, words) => before[key] !== after[key] && out.push(words(before[key], after[key]));
   if (walls(before ?? {}) !== walls(after)) out.push(`the walls changed from ${walls(before)} to ${walls(after)}`);
   swap('floor', (a, b) => `the floor changed from ${FLOORS[a]} to ${FLOORS[b]}`);
-  swap('sofaColor', (a, b) => `the sofa changed from ${colorName(a)} to ${colorName(b)}`);
-  swap('rugColor', (a, b) => `the rug changed from ${colorName(a)} to ${colorName(b)}`);
   if (outside(before) !== outside(after)) out.push(`the view out the window changed from ${outside(before)} to ${outside(after)}`);
   swap('lights', (a, b) => `the lamps were switched from "${a}" to "${b}"`);
   swap('timeOfDay', () => 'the light outside the window changed');
-  const things = { kitchen: 'the kitchen through the doorway', tv: 'the TV', bookshelf: 'the bookshelf', plants: 'the plants', art: 'the pictures on the walls', curtains: 'the curtains' };
+  const things = { kitchen: 'the kitchen through the doorway', curtains: 'the curtains' };
   for (const [key, name] of Object.entries(things)) {
     if (before[key] !== after[key]) out.push(after[key] ? `${name} appeared` : `${name} disappeared`);
   }
-  // Things placed with Decorate: added, removed, moved, recolored, resized.
+  // Everything in the room: added, removed, moved, turned, recolored, resized.
   const old = new Map((before.items ?? []).map((i) => [i.id, i]));
   const now = new Map((after.items ?? []).map((i) => [i.id, i]));
   for (const [id, item] of now) {
@@ -49,6 +49,8 @@ export function houseChanges(before, after) {
     if (!was) out.push(`${itemName(item)} appeared ${where(item)}`);
     else {
       if (where(was) !== where(item) || Math.hypot(was.x - item.x, was.z - item.z, was.y - item.y) > 0.6) out.push(`${itemName(was)} was moved; it's now ${where(item)}`);
+      const turned = Math.abs((((item.rot - was.rot) % 360) + 540) % 360 - 180);
+      if (CATALOG[item.type]?.place === 'floor' && turned >= 40 && !item.type.includes('rug')) out.push(`${itemName(was)} was turned ${turned > 135 ? 'around' : 'to face another way'}`);
       if (was.color !== item.color) out.push(`${itemName(was)} is now ${colorName(item.color)}`);
       if (Math.abs(was.scale - item.scale) > 0.25) out.push(`${itemName(item)} got ${item.scale > was.scale ? 'bigger' : 'smaller'}`);
     }
@@ -79,25 +81,29 @@ function itemName(item) {
   const def = CATALOG[item.type];
   if (item.type === 'photo') return `a framed picture${item.label ? ` of ${item.label}` : ''}`;
   if (item.type === 'model') return item.label ? withArticle(item.label) : 'a 3D model';
+  const tint = def.color && !item.type.startsWith('print');
   const size = item.scale >= 2.2 ? 'huge ' : item.scale >= 1.5 ? 'big ' : item.scale <= 0.5 ? 'tiny ' : '';
   const name = item.label || (size ? def.name.replace(/^(big|giant) /, '') : def.name); // not "a huge giant spider"
-  return withArticle(`${size}${def.color ? `${colorName(item.color)} ` : ''}${name}`);
+  return withArticle(`${size}${tint ? `${colorName(item.color)} ` : ''}${name}`);
 }
 
-// Roughly where a placed thing is, as you'd say it.
+// Roughly where a thing is, as the twin would say it. It stands in the middle of the
+// room (0, 0) facing the camera (+z), so -x is on its right and the back wall behind it.
+// The walls are named as you see them: your left wall is on its right.
 function where(item) {
-  if (CATALOG[item.type]?.place === 'wall') return `on the ${item.wall ?? 'back'} wall`;
+  if (CATALOG[item.type]?.place === 'wall') return { back: 'on the wall behind you', left: 'on the wall to your right', right: 'on the wall to your left' }[item.wall ?? 'back'];
   const { x, z } = item;
-  // You stand in the middle of the room (0, 0): close things are worth saying so.
   const away = Math.hypot(x, z);
+  if (item.type.includes('rug') && away < 1.3 * item.scale) return 'on the floor around you';
   if (away < 1.1) return `right next to you (about ${Math.max(0.3, Math.round(away * 10) / 10)} m away)`;
-  if (away < 1.8) return 'close to you'
-    + (z < -0.5 ? ', behind you' : x < 0 ? ', on your right' : ', on your left');
-  if (z < -1.6 && x > -2.5 && x < 0.3) return 'by the window';
-  if (z < -1.6 && x > 0.6 && x < 2.3) return 'by the kitchen doorway';
-  const side = x < -1.6 ? 'on the left' : x > 1.6 ? 'on the right' : '';
-  const depth = z < -1.2 ? 'at the back' : z > 2.2 ? 'at the front of the room' : '';
-  return [depth, side].filter(Boolean).join(' ') || 'in the middle of the room';
+  const ahead = z < -0.8 ? 'behind you' : z > 1.2 ? 'in front of you' : '';
+  const side = x < -0.8 ? 'on your right' : x > 0.8 ? 'on your left' : '';
+  let spot = '';
+  if (Math.abs(x) > 2.6 && (z < -1.8 || z > 3.9)) spot = ', in the corner';
+  else if (z < -1.6 && x > -2.5 && x < 0.3) spot = ', by the window';
+  else if (z < -1.6 && x > 0.6 && x < 2.3) spot = ', by the kitchen doorway';
+  else if (Math.abs(x) > 2.9 || z < -2.1) spot = ', against the wall';
+  return `${away < 1.8 ? 'close to you, ' : ''}${[ahead, side].filter(Boolean).join(' ') || 'near you'}${spot}`;
 }
 
 function withArticle(words) {
