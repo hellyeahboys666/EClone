@@ -252,3 +252,6 @@ a.chip { text-decoration: none; }
   gap: 6px;
   z-index: 2;
 }
+
+/* The twin chose not to answer. */
+.bubble.quiet { font-style: italic; opacity: 0.6; background: transparent; border: 1px dashed var(--glass-border); }

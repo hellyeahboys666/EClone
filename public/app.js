@@ -38,6 +38,11 @@ if (new URLSearchParams(location.search).has('debug')) {
   };
 }
 let currentTurn = null;
+let lastCaption = null; // the twin's latest line, while it may still be saying it
+let pendingCut = null; // what it had said when you clicked the mic to talk over it
+let twinAway = false;
+let sends = 0;
+let mic = { cancel() {} };
 let mood = { feeling: 'calm', intensity: 0, at: Date.now(), halfLifeHours: 2 };
 // What the twin is doing, for its body language: 'idle', 'listening' (your mic is on)
 // or 'thinking' (waiting for its reply to start). Talking comes from the voice itself.
@@ -95,7 +100,8 @@ async function init() {
     els.input.value = '';
     send(text);
   });
-  setupMic();
+  mic = setupMic();
+  els.input.addEventListener('input', watchDraft);
 }
 
 function setBrainChip(brain, model) {
@@ -121,7 +127,10 @@ function addBubble(kind, text) {
 async function loadConversation() {
   let { messages } = await (await fetch('/api/conversation')).json();
   if (!messages.length) messages = await importOldConversation();
-  for (const m of messages) addBubble(m.role === 'user' ? 'user' : 'twin', m.content);
+  for (const m of messages) {
+    if (m.silent) addBubble('twin quiet', '(no reply)');
+    else addBubble(m.role === 'user' ? 'user' : 'twin', m.content);
+  }
 }
 
 // After a break, the twin may say something first ("so how'd the test go?"). The
@@ -152,6 +161,7 @@ async function checkSchedule() {
   if (label !== lastStatus && status?.where === 'away') hint(`${els.name.textContent} is out (${status.name}) until ${status.until}. You can still message.`);
   else if (label !== lastStatus && lastStatus.startsWith('Out')) hint('');
   lastStatus = label;
+  twinAway = status?.where === 'away';
   if (line && !currentTurn) {
     if (felt) {
       // It just came home and noticed something new.
@@ -263,6 +273,24 @@ function showMood() {
     : `About ${Math.round(level)}/10${mood.reason ? `, because: ${mood.reason}` : ''}. Fades over a few hours.`;
 }
 
+// You talk over the twin: it stops mid-sentence, its bubble keeps only the words it
+// got out (ending in a dash), and the server is told how far it got. Returns those
+// words, or null if it wasn't saying anything.
+function cutTwinOff() {
+  const caption = lastCaption;
+  if (!caption?.talking()) return null;
+  const said = caption.said().trim();
+  caption.stop();
+  speech.stop();
+  if (said) {
+    caption.bubble.textContent = `${said.replace(/[\s—–-]+$/, '')}—`;
+    caption.bubble.classList.add('cut');
+  } else {
+    caption.bubble.remove();
+  }
+  return said;
+}
+
 // Stops the twin mid-sentence when you start talking or send something new.
 function interrupt() {
   currentTurn?.abort();
@@ -273,6 +301,10 @@ function interrupt() {
 async function send(rawText) {
   const text = rawText.trim();
   if (!text) return;
+  const cutOff = pendingCut ?? cutTwinOff();
+  pendingCut = null;
+  sends += 1;
+  clearTimeout(draftCheck.timer);
   interrupt();
   speech.unlock();
   hint('');
@@ -280,6 +312,7 @@ async function send(rawText) {
 
   const bubble = addBubble('twin', '');
   const caption = createCaption(bubble);
+  caption.streaming = true;
   const turn = new AbortController();
   currentTurn = turn;
   activity = 'thinking';
@@ -290,7 +323,7 @@ async function send(rawText) {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, ...(cutOff !== null && { cutOff }) }),
       signal: turn.signal,
     });
     if (!res.ok) throw new Error((await res.json()).error ?? `Server error ${res.status}`);
@@ -308,6 +341,12 @@ async function send(rawText) {
       } else if (event.type === 'mood') {
         mood = event;
         showMood();
+      } else if (event.type === 'silent') {
+        // It chose not to answer.
+        caption.stop();
+        bubble.classList.add('quiet');
+        bubble.textContent = '(no reply)';
+        activity = 'idle';
       } else if (event.type === 'refusal') {
         hint('Claude declined to answer that one.');
       } else if (event.type === 'error') {
@@ -321,7 +360,9 @@ async function send(rawText) {
       }
     }
     if (unspoken.trim()) caption.say(unspoken);
+    caption.streaming = false;
   } catch (err) {
+    caption.streaming = false;
     if (err.name !== 'AbortError') {
       caption.stop();
       bubble.classList.add('error');
@@ -342,6 +383,7 @@ const WORDS_PER_SECOND = 2.8;
 
 function createCaption(bubble) {
   let shown = ''; // everything that's been (or is being) said so far
+  let queued = ''; // everything it has been given to say
   let stopped = false;
   let latest = 0; // a newer sentence takes over from one still finishing
 
@@ -373,9 +415,20 @@ function createCaption(bubble) {
     });
   }
 
-  return {
+  const caption = {
+    bubble,
+    streaming: false, // more of the reply may still be coming
+    // Whether it's still saying this (so talking now would cut it off).
+    talking() {
+      return !stopped && bubble.isConnected && (caption.streaming || bubble.textContent.trim().length < queued.trim().length);
+    },
+    // The words it has got out so far.
+    said() {
+      return bubble.textContent;
+    },
     // Speaks a piece of the reply and shows its words in time with the voice.
     say(text) {
+      queued += text;
       speech.say(text, {
         start: (seconds, isCurrent) => {
           if (activity === 'thinking') activity = 'idle';
@@ -393,6 +446,56 @@ function createCaption(bubble) {
       stopped = true;
     },
   };
+  lastCaption = caption;
+  return caption;
+}
+
+// ---- The twin cutting in while you're still typing or talking -----------------
+// Whenever you pause, or have added a few words, the server gets what you've said so
+// far and the twin decides whether it would cut you off (usually it lets you finish).
+// If it does, your unfinished message ends in a dash and the twin's line follows.
+const draftCheck = { timer: null, busy: false, checked: '', lastAt: 0 };
+const wordCount = (text) => (text.match(/\S+/g) ?? []).length;
+
+function watchDraft() {
+  clearTimeout(draftCheck.timer);
+  speech.unlock(); // typing counts as a click, so its voice can play if it cuts in
+  const text = els.input.value.trim();
+  if (wordCount(text) < 4 || currentTurn || lastCaption?.talking() || twinAway) return;
+  if (wordCount(text) - wordCount(draftCheck.checked) >= 7 && Date.now() - draftCheck.lastAt > 4000) return void checkDraft();
+  draftCheck.timer = setTimeout(checkDraft, 1400);
+}
+
+async function checkDraft() {
+  // Only whole words: a half-typed word isn't something it has heard yet.
+  const typed = els.input.value;
+  const draft = (/[\s.,!?;:]$/.test(typed) ? typed : typed.replace(/\S+$/, '')).trim();
+  if (draftCheck.busy || wordCount(draft) < 4 || draft === draftCheck.checked || currentTurn || lastCaption?.talking()) return;
+  draftCheck.busy = true;
+  draftCheck.checked = draft;
+  draftCheck.lastAt = Date.now();
+  const before = sends;
+  const still = () => sends === before && !currentTurn && els.input.value.trim();
+  try {
+    const r = await (await fetch('/api/interject', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ draft }) })).json();
+    if (!r.interrupt || !still()) return;
+    const ok = await fetch('/api/interject/accept', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: r.token }) });
+    if (!ok.ok || !still()) return;
+    mic.cancel();
+    els.input.value = '';
+    draftCheck.checked = '';
+    addBubble('user cut', `${draft.replace(/[\s—–-]+$/, '')}—`);
+    if (r.mood) {
+      mood = r.mood;
+      showMood();
+    }
+    if (r.totals) showUsage(null, r.totals);
+    createCaption(addBubble('twin', '')).say(r.line);
+  } catch {
+    // A failed check just means it lets you finish.
+  } finally {
+    draftCheck.busy = false;
+  }
 }
 
 // Index just past the first sentence end that leaves a chunk long enough to
@@ -515,7 +618,7 @@ function setupMic() {
   if (!Recognition) {
     els.mic.hidden = true;
     hint('Voice input needs Chrome or Safari. You can type instead.');
-    return;
+    return { cancel() {} };
   }
   const rec = new Recognition();
   rec.lang = 'en-US';
@@ -526,6 +629,7 @@ function setupMic() {
   rec.onresult = (e) => {
     heard = Array.from(e.results, (r) => r[0].transcript).join('');
     els.input.value = heard;
+    watchDraft(); // it can cut you off mid-sentence here too
   };
   rec.onerror = (e) => {
     hint(e.error === 'not-allowed'
@@ -539,13 +643,15 @@ function setupMic() {
     if (heard.trim()) {
       els.input.value = '';
       send(heard);
-    } else if (els.hint.textContent === 'Listening…') {
-      hint('');
+    } else {
+      pendingCut = null;
+      if (els.hint.textContent === 'Listening…') hint('');
     }
     heard = '';
   };
   els.mic.addEventListener('click', () => {
     if (listening) return rec.stop();
+    pendingCut = cutTwinOff(); // talking over it
     interrupt();
     speech.unlock();
     heard = '';
@@ -555,4 +661,12 @@ function setupMic() {
     els.mic.classList.add('on');
     hint('Listening…');
   });
+  // The twin cut you off: stop listening and drop what was heard.
+  return {
+    cancel() {
+      if (!listening) return;
+      heard = '';
+      rec.abort();
+    },
+  };
 }

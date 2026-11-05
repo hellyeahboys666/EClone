@@ -247,6 +247,21 @@ export function createMemory({ dir, name, completeJson, embed, onError, reflect:
     if (message.role === 'assistant' && pending() >= CONSOLIDATE_EVERY) consolidate().catch(() => {});
   }
 
+  // They talked over the twin: its last line counts only as far as it got, which is
+  // as many words as the page had shown. (The words come from the saved line itself,
+  // so nothing new can be put in its mouth.) Returns whether there was a line to cut.
+  async function cutOffLastReply(shown) {
+    const last = conversation.messages.at(-1);
+    if (last?.role !== 'assistant' || last.silent || !(Date.now() - last.at < 10 * 60_000)) return false;
+    const count = (String(shown).match(/\S+/g) ?? []).length;
+    const words = last.content.match(/\S+/g) ?? [];
+    if (count >= words.length) return false; // it had finished
+    last.content = count ? `${words.slice(0, count).join(' ').replace(/[\s—–-]+$/, '')}—` : '';
+    last.interrupted = true;
+    await saveJson(files.conversation, conversation);
+    return true;
+  }
+
   // Turns the conversation since the last consolidation into memories. Runs one at a
   // time; failures leave the messages pending so the next run picks them up.
   function consolidate() {
@@ -534,7 +549,7 @@ export function createMemory({ dir, name, completeJson, embed, onError, reflect:
   }
 
   return {
-    load, messages, addMessage, consolidate, recall, cueVector, lastTalked, startOver, importConversation, recordUsage, usageSummary,
+    load, messages, addMessage, cutOffLastReply, consolidate, recall, cueVector, lastTalked, startOver, importConversation, recordUsage, usageSummary,
     list, addMemory, updateMemory, removeMemory, forgetAll, clearConversation,
   };
 }

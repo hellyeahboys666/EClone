@@ -100,7 +100,9 @@ It checks Node, the packages, your key (with a free test request), the voice, th
 
 ## Using it
 
-- **Talk:** click the mic and speak, or type and press Enter. Talking or sending while it speaks interrupts it.
+- **Talk:** click the mic and speak, or type and press Enter.
+- **Interrupting, both ways:** talk or send while it's still speaking and it stops mid-sentence. It only remembers the words it got out (the bubble ends in a dash), and it reacts to being talked over the way that person would: a polite "sorry, can I jump in" and a yelled "STOP" land differently. It can also cut *you* off: while you type or talk, it hears what you've said so far, and if something really gets to it, it jumps in before you finish, politely or yelling in capitals, depending on who it is. Most of the time it lets you finish. Set `TWIN_INTERRUPTS=no` in `.env` to turn its cutting in off.
+- **It doesn't always answer:** like a person, it can choose to say nothing, for example after you've insulted it ("(no reply)" in the chat). It's rare, and its mood still shows how it feels.
 - **Subtitles:** its words appear in the chat bubble as it says them, in time with the voice, not all at once. Without sound, they appear at a speaking pace.
 - **Chips at the top:**
 

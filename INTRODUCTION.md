@@ -160,7 +160,9 @@ Every write goes to a temporary file first and is then renamed into place, so a 
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /api/chat` `{ text }` | Answers one message. The reply is a stream of server-sent events: `mood`, `text`, `done` (with model and token usage), `error`, and `refusal`. Sending a new message cuts off the reply in progress. |
+| `POST /api/chat` `{ text, cutOff? }` | Answers one message. The reply is a stream of server-sent events: `mood`, `text`, `silent` (it chose not to answer: it wrote `[no reply]` after its mood tag, saved as a `silent` message), `done` (with model and token usage), `error`, and `refusal`. Sending a new message cuts off the reply in progress. `cutOff` says how much of its last line had been shown when you talked over it; only that many words of it are kept (ending in a dash), and your message is marked as talking over it, so the brain knows. |
+| `POST /api/interject` `{ draft }` | Called while you type or talk, when you pause or have added a few words. The backup model (quick) decides, as the twin, whether it would cut you off now. Usually it doesn't. If it would, it returns the line (polite, firm, or yelled in capitals) and a feeling, plus a token. |
+| `POST /api/interject/accept` `{ token }` | The page confirms you hadn't sent your message in the meantime; then your unfinished words (ending in a dash, marked `cutOff`) and the twin's line are saved and its mood set. Turned off with `TWIN_INTERRUPTS=no`. |
 | `POST /api/tts` `{ text }` | One sentence as audio: MP3 from ElevenLabs, or WAV from the Mac's `say`. |
 | `GET /api/conversation` | The current conversation, used to redraw the chat after a refresh. |
 | `POST /api/new-chat` | Forms memories from this conversation, then starts a fresh one. |

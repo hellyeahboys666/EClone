@@ -53,6 +53,8 @@ const config = {
   // A name starting with "claude" uses Claude; anything else uses OpenAI. "none" turns it off.
   fallbackModel: process.env.FALLBACK_MODEL || 'gpt-5.4-mini',
   fallbackAfterMs: 1000 * Number(process.env.FALLBACK_AFTER_SECONDS || 20),
+  // Whether the twin may cut you off while you're still typing or talking (yes/no).
+  interrupts: !/^(no|off|false|0)$/i.test(process.env.TWIN_INTERRUPTS || 'yes'),
   elevenKey: process.env.ELEVENLABS_API_KEY || '',
   elevenVoice: process.env.ELEVENLABS_VOICE_ID || '',
   elevenModel: process.env.ELEVENLABS_MODEL || 'eleven_flash_v2_5',
@@ -265,7 +267,8 @@ function moodBlock() {
     'Start every reply with a hidden tag saying how you feel after their latest message: the feeling, one ' +
     'number for how strongly, and a few words on why, like [mood: calm 1 | nothing much happened]. ' +
     `The feeling is one of: ${FEELINGS.join(', ')}. The number goes from 0 (barely) to 10 (as strong as it gets). ` +
-    "The tag is removed before they see or hear anything, so never mention it. After the tag, reply as usual."
+    "The tag is removed before they see or hear anything, so never mention it. After the tag, reply as usual, or, " +
+    'if you would say nothing at all to this, write only [no reply] after the tag.'
   );
 }
 
@@ -286,7 +289,10 @@ function cleanHistory(messages) {
       const at = Number.isFinite(m.at) ? m.at : i === list.length - 1 ? Date.now() : NaN;
       // Earlier replies keep their mood tags, so the brain sees how its feelings went
       // and keeps writing the tag.
-      const label = m.role === 'user' ? timeLabel(at, list[i - 1]?.at) : m.mood ? `${moodTag(m.mood)} ` : '';
+      let label = m.role === 'user' ? timeLabel(at, list[i - 1]?.at) : m.mood ? `${moodTag(m.mood)} ` : '';
+      // Interruptions, both ways (the dash at the end shows where the speaker was cut off).
+      if (m.interrupting) label += '(They talked over you, cutting you off.) ';
+      if (m.cutOff) label += '(You cut them off before they finished; this is as far as they got.) ';
       return { role: m.role, content: label + m.content.slice(0, 4000), at };
     })
     .slice(-100);
@@ -465,9 +471,12 @@ async function streamOpenAI(modelName, system, history, send, signal) {
 let inFlight = null;
 
 async function handleChat(req, res) {
-  const { text } = await readJson(req);
+  const { text, cutOff } = await readJson(req);
   const message = String(text ?? '').trim().slice(0, 4000);
   if (!message) return sendJson(res, 400, { error: 'No message to answer.' });
+  // `cutOff`: they talked over the twin, and this is as far as it had got (what was
+  // shown and heard). Only that much counts as said.
+  let interrupting = false;
 
   // Talking over the twin stops its reply. Wait for that reply to be saved first,
   // so the conversation stays in the order things were said.
@@ -479,6 +488,7 @@ async function handleChat(req, res) {
   let finished;
   const turn = { abort, done: new Promise((r) => (finished = r)) };
   inFlight = turn;
+  if (typeof cutOff === 'string') interrupting = await memory.cutOffLastReply(cutOff.slice(0, 4000)).catch(() => false);
 
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
   const send = (event) => res.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -488,6 +498,7 @@ async function handleChat(req, res) {
 
   const live = hasBrainKey();
   let reply = '';
+  let silent = false;
   let felt = null;
   try {
     if (!live) {
@@ -495,17 +506,38 @@ async function handleChat(req, res) {
       send({ type: 'done', brain: 'demo' });
       return;
     }
-    await memory.addMessage({ role: 'user', content: message, at: Date.now() });
+    await memory.addMessage({ role: 'user', content: message, at: Date.now(), ...(interrupting && { interrupting: true }) });
     const messages = memory.messages();
     // What was just said (and the moment before it) is the cue for recall.
     const cue = messages.slice(-3).map((m) => m.content).join('\n');
     const [vector, instructions, room, plans] = await Promise.all([memory.cueVector(cue), buildSystemPrompt(), surroundingsBlock(), scheduleBlock()]);
     const recalled = memory.recall(cue, { vector });
     const system = [instructions, memoryBlock(recalled), room, plans, moodBlock()].filter(Boolean);
+    // The twin may choose to say nothing: then the reply (after the mood tag) is just
+    // [no reply]. Text starting with "[" is held back until it's clear which it is.
+    let held = '';
     const show = (text) => {
-      if (!text) return;
+      if (!text || silent) return;
+      if (!reply && (held || text.trimStart().startsWith('['))) {
+        held += text;
+        const start = held.trimStart();
+        if (NO_REPLY.test(start)) {
+          silent = true;
+          return;
+        }
+        if (!start.includes(']') && start.length < 40) return;
+        text = held;
+        held = '';
+      }
       reply += text;
       send({ type: 'text', text });
+    };
+    const flushHeld = () => {
+      if (held && !silent) {
+        const text = held;
+        held = '';
+        show(text);
+      }
     };
     // The main model answers. If it fails, or hasn't started answering in time, the
     // backup takes over (without a backup, the main one gets a second try). An empty
@@ -517,7 +549,7 @@ async function handleChat(req, res) {
     let answeredBy = mainModel;
     let fellBack = null;
     for (const [i, model] of attempts.entries()) {
-      if (reply.trim() || abort.signal.aborted) break;
+      if (reply.trim() || silent || abort.signal.aborted) break;
       const last = i === attempts.length - 1;
       const attempt = new AbortController();
       const stop = () => attempt.abort();
@@ -536,6 +568,7 @@ async function handleChat(req, res) {
           show(tags.push(event.text));
         }, attempt.signal);
         show(tags.end());
+        flushHeld();
         answeredBy = model;
         await memory.recordUsage('chat', result.usage);
         if (model !== mainModel) fellBack ??= { from: mainModel.name, reason: 'its reply was empty' };
@@ -553,6 +586,7 @@ async function handleChat(req, res) {
     if (!result) return;
     const { model, refused, usage } = result;
     if (refused) send({ type: 'refusal' });
+    if (silent) send({ type: 'silent' });
     send({ type: 'done', brain: answeredBy.provider === 'codex' ? 'chatgpt' : answeredBy.provider, model, usage, totals: memory.usageSummary(), ...(fellBack && { fallback: fellBack }) });
   } catch (err) {
     if (!abort.signal.aborted) {
@@ -563,7 +597,10 @@ async function handleChat(req, res) {
     // Keep even a cut-off reply, so the conversation matches what was actually said.
     // A feeling counts even if the reply was cut off.
     if (felt) await mood.set(felt).catch((err) => console.error('[mood]', err));
-    if (live && reply.trim()) {
+    if (live && silent && !reply.trim()) {
+      // Saying nothing is still an answer: the brain sees it chose silence.
+      await memory.addMessage({ role: 'assistant', content: '[no reply]', at: Date.now(), mood: felt ?? mood.current(), silent: true });
+    } else if (live && reply.trim()) {
       // A reply without a tag keeps the mood as it stood, so the history the brain
       // sees still shows a tag on every reply and it keeps writing them.
       await memory.addMessage({ role: 'assistant', content: reply, at: Date.now(), mood: felt ?? mood.current() });
@@ -577,11 +614,14 @@ async function handleChat(req, res) {
 
 async function handleConversation(res) {
   sendJson(res, 200, {
-    messages: memory.messages().map(({ role, content, at }) => ({
-      role,
-      content: role === 'assistant' ? splitMoodTag(content).text : content,
-      at,
-    })),
+    messages: memory.messages()
+      .filter((m) => m.content || m.silent)
+      .map(({ role, content, at, silent }) => ({
+        role,
+        content: silent ? '' : role === 'assistant' ? splitMoodTag(content).text : content,
+        at,
+        ...(silent && { silent: true }),
+      })),
   });
 }
 
@@ -648,6 +688,9 @@ const REACTION_SCHEMA = {
 };
 let reacting = false;
 
+// What the twin writes (after its mood tag) when it chooses not to answer.
+const NO_REPLY = /^\[\s*(no reply|no response|silence|says? nothing|ignores?[^\]]*)\s*\]\s*$/i;
+
 // `arriving` is the activity it just came home from, or null if it was standing there.
 // Returns { line, felt }, or null when nothing changed (or nothing was said).
 async function reactToHouse({ arriving = null } = {}) {
@@ -707,6 +750,86 @@ async function handleHouseReact(res) {
 
 function moodForPage(felt) {
   return { ...felt, at: Date.now(), since: Date.now(), halfLifeHours: mood.snapshot().halfLifeHours };
+}
+
+// ---- Interrupting: the twin cuts in while they're still typing or talking ------
+// The page sends what they've typed (or said into the mic) so far, whenever they
+// pause or have added a few words. Usually the twin lets them finish. If it would cut
+// in, the page shows them being cut off and the twin's line, and only then (accept)
+// is it saved, so a check that comes back after they already sent is dropped.
+const INTERJECT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['interrupt', 'line', 'feeling', 'intensity', 'reason'],
+  properties: {
+    interrupt: { type: 'boolean' },
+    line: { type: 'string' },
+    feeling: { type: 'string', enum: FEELINGS },
+    intensity: { type: 'integer' },
+    reason: { type: 'string' },
+  },
+};
+let interjecting = false;
+let pendingInterjection = null;
+
+async function handleInterject(req, res) {
+  const { draft } = await readJson(req);
+  const text = String(draft ?? '').trim().slice(0, 2000);
+  const no = () => sendJson(res, 200, { interrupt: false });
+  if (!config.interrupts || !hasBrainKey() || inFlight || reacting || interjecting) return no();
+  if ((text.match(/\S+/g) ?? []).length < 4) return no();
+  if (currentActivity(await loadSchedule())?.activity.where === 'away') return no(); // can't see them typing
+  interjecting = true;
+  try {
+    const recent = cleanHistory(memory.messages()).slice(-8)
+      .map((m) => `${m.role === 'user' ? 'Them' : 'You'}: ${m.content}`)
+      .join('\n');
+    const cue = `${recent.slice(-600)}\n${text}`;
+    const [vector, instructions, room, plans] = await Promise.all([memory.cueVector(cue), buildSystemPrompt(), surroundingsBlock(), scheduleBlock()]);
+    const system = [instructions, memoryBlock(memory.recall(cue, { vector, reinforce: false })), room, plans, `<mood>\n${mood.describe()}\n</mood>`]
+      .filter(Boolean)
+      .join('\n\n');
+    const prompt =
+      `The conversation so far:\n${recent || '(nothing yet)'}\n\n` +
+      `They're in the middle of saying something to you and haven't finished. So far: "${text}"\n\n` +
+      'Would you cut them off right now? Almost always people let each other finish, so the answer is usually no. ' +
+      'Only cut in if what they have said so far really gets to you and it is like you to interrupt: it insults you or ' +
+      "someone or something you care about, it's badly wrong about something you care about, it's something you strongly " +
+      "object to, or your reaction just won't wait (shock, alarm, excitement). Judge it by your own notes: if you'd agree " +
+      "with what they're saying, or it isn't about anything you care about, there's nothing to cut in about. Being mildly " +
+      'bored or disagreeing a little is not enough. If you would cut in, write what you would blurt out, short and in your ' +
+      'own voice: polite if that is you or you are only a bit bothered ("sorry, can I stop you there"), firm if you are ' +
+      "angry, and if you are furious (8 or more) and you are someone who yells, yell it in CAPITALS. Also give the feeling (one of the listed feelings), how strongly 0 to 10, and a few words on why. If you would " +
+      'let them finish, set interrupt to false and leave the line empty. No mood tag in the line.';
+    const model = backupModel ?? mainModel; // quick: they're still typing
+    const { data, usage } = await completeJsonWith(model, system, prompt, INTERJECT_SCHEMA);
+    await memory.recordUsage('chat', usage);
+    const line = splitMoodTag(String(data.line ?? '').trim()).text;
+    if (!data.interrupt || !line) return no();
+    const felt = {
+      feeling: data.feeling,
+      intensity: Math.min(10, Math.max(0, Math.round(data.intensity))),
+      reason: String(data.reason ?? '').trim().slice(0, 200) || 'what they were saying',
+    };
+    pendingInterjection = { token: randomUUID(), draft: text, line, felt, at: Date.now() };
+    sendJson(res, 200, { interrupt: true, token: pendingInterjection.token, line, mood: moodForPage(felt), totals: memory.usageSummary() });
+  } catch (err) {
+    console.error('[interject]', err);
+    no();
+  } finally {
+    interjecting = false;
+  }
+}
+
+async function handleInterjectAccept(req, res) {
+  const { token } = await readJson(req);
+  const p = pendingInterjection;
+  if (!p || p.token !== token || Date.now() - p.at > 60_000 || inFlight) return sendJson(res, 409, { ok: false });
+  pendingInterjection = null;
+  await memory.addMessage({ role: 'user', content: `${p.draft}—`, at: p.at, cutOff: true });
+  await mood.set(p.felt);
+  await memory.addMessage({ role: 'assistant', content: p.line, at: Date.now(), mood: p.felt });
+  sendJson(res, 200, { ok: true });
 }
 
 async function handleNewChat(res) {
@@ -971,6 +1094,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/house-asset') return await handleUploadAsset(req, res);
     if (req.method === 'POST' && pathname === '/api/describe-picture') return await handleDescribePicture(req, res);
     if (req.method === 'POST' && pathname === '/api/house-react') return await handleHouseReact(res);
+    if (req.method === 'POST' && pathname === '/api/interject') return await handleInterject(req, res);
+    if (req.method === 'POST' && pathname === '/api/interject/accept') return await handleInterjectAccept(req, res);
     if (req.method === 'GET' && pathname.startsWith('/house-assets/')) {
       return await serveFile(res, config.assetDir, pathname.slice('/house-assets'.length));
     }
