@@ -1,8 +1,34 @@
 # EClone
 
-**Demo version.** EClone is a talking 3D twin of a person that runs in your browser. You talk or type, and GPT or Claude answers as that person using notes about them. The reply is spoken in their voice (or the Mac's), and a 3D avatar standing in a house lip-syncs to it. The twin has memory, moods, and a sense of time.
+**Demo version. Free and open source (MIT).** EClone is a talking 3D twin of a person that runs in your browser. You talk or type, and GPT or Claude answers as that person using notes about them. The reply is spoken in their voice (or the Mac's), and a 3D avatar standing in a house lip-syncs to it. The twin has memory, moods, and a sense of time.
 
 This guide takes you from nothing to a running twin in about 10 minutes. [INTRODUCTION.md](INTRODUCTION.md) explains how it works inside.
+
+## Why EClone
+
+Most AI companions are made-up characters. Most "digital clone" services live on someone else's servers. EClone is a twin of one real person that lives on your own computer, and it behaves like someone with a life:
+
+- **A twin of a real person, with consent built in.** It speaks as them from notes in their own words and only states facts it was given. It says plainly that it's an AI when sincerely asked, and never makes promises for them. The setup guide is written around the person agreeing to it.
+- **Memory that works like a person's.**
+  - Conversations turn into dated memories on their own, while it's idle.
+  - It recalls memories by meaning, so "my nan" finds the memory about a grandma.
+  - Old small details fade and go fuzzy ("I think it was Lisbon?").
+  - It forms impressions over time ("I get the sense you've been worn down lately").
+- **Feelings that linger.** A mood comes from what you say and fades over hours, not instantly. It shows on the avatar's face and in how it talks, and emotional moments are remembered more strongly.
+- **A mind of its own.** It keeps replies short and spoken, pushes back on things that don't add up, and only knows what someone like the person would actually know. No encyclopedia answers.
+- **A sense of time.** It knows the date and time, notices when you've been away, asks why you're saying hello twice, and sometimes speaks first after a break ("How'd the test go?").
+- **A life with a schedule.** Give it a week of work, school or sleep. When busy it replies like a busy person ("at the bike shop, kinda busy"). When out, it isn't in the house. It tells you when it's leaving, and knows when it just got back.
+- **A home it knows about.** A 3D house with sunlight through the window, a kitchen and furniture. You can change the time of day, the view and the colors, and the twin notices ("did the walls change?").
+- **Private by design.** Memories, mood, schedule and settings stay as files on your computer, and only pages on your computer can use it. The only thing that leaves is what the AI model needs to answer.
+- **Easy to set up and edit.**
+  - A setup wizard and a health check.
+  - A double-click launcher on a Mac.
+  - A Mind page to edit who the twin is, what it remembers and its schedule, without touching files.
+  - `npm run share`, which gives someone a clean copy with nothing personal in it.
+
+### Free
+
+EClone itself is free: no subscription, no account, no paid tier, and the code is MIT licensed. You bring your own AI key, and the only cost is what the AI provider charges for the messages (the **Tokens** chip shows it). The Mac's built-in voice is free too; a cloned ElevenLabs voice is optional.
 
 ## What you need
 
