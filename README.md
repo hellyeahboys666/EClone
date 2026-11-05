@@ -34,11 +34,12 @@ EClone itself is free: no subscription, no account, no paid tier, and the code i
 
 - **A Mac.** Windows or Linux works too, but then the voice needs ElevenLabs (see [Voice](#make-it-look-and-sound-like-them)).
 - **Chrome or Safari.** Talking into the mic uses the browser's speech recognition. Typing works anywhere.
-- **An API key**, either:
-  - OpenAI (GPT), from https://platform.openai.com/api-keys
-  - Anthropic (Claude), from https://platform.claude.com, under Settings, API keys
+- **A brain**, one of:
+  - an **OpenAI API key** (GPT), from https://platform.openai.com/api-keys
+  - an **Anthropic API key** (Claude), from https://platform.claude.com, under Settings, API keys
+  - your **ChatGPT account** (no API credits), through OpenAI's Codex tool. See [Use your ChatGPT plan instead of API credits](#use-your-chatgpt-plan-instead-of-api-credits).
 
-  Both are pay-as-you-go and billed separately from ChatGPT or Claude subscriptions; add a few dollars of credit. The **Tokens** chip on the page shows how much the twin uses.
+  API keys are pay-as-you-go and billed separately from ChatGPT or Claude subscriptions; add a few dollars of credit. The **Tokens** chip on the page shows how much the twin uses.
 
 ## Set it up
 
@@ -100,6 +101,7 @@ It checks Node, the packages, your key (with a free test request), the voice, th
 ## Using it
 
 - **Talk:** click the mic and speak, or type and press Enter. Talking or sending while it speaks interrupts it.
+- **Subtitles:** its words appear in the chat bubble as it says them, in time with the voice, not all at once. Without sound, they appear at a speaking pace.
 - **Chips at the top:**
 
   | Chip | What it does |
@@ -121,13 +123,38 @@ The easy way is to run `npm run setup` again. Or open `.env` in a text editor, c
 
 | Setting in `.env` | What it does |
 |---|---|
-| `BRAIN` | `openai` or `claude` |
+| `BRAIN` | `openai`, `claude`, or `chatgpt` (your ChatGPT plan through Codex) |
 | `OPENAI_API_KEY`, `OPENAI_MODEL` | GPT key and model (default `gpt-5.4`; `gpt-5.4-mini` is faster and cheaper). The OpenAI key also powers recall by meaning and the backup model. |
 | `ANTHROPIC_API_KEY`, `CLAUDE_MODEL` | Claude key and model (default `claude-opus-5-5`) |
 | `FALLBACK_MODEL`, `FALLBACK_AFTER_SECONDS` | Backup model if the main one fails or is silent (default `gpt-5.4-mini` after 20 seconds; `none` turns it off) |
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | Cloned voice (blank uses the Mac's voice) |
 | `TWIN_NAME` | Name shown on the page |
 | `PORT` | The address, `http://localhost:PORT` (default 4747) |
+
+### Use your ChatGPT plan instead of API credits
+
+With `BRAIN=chatgpt`, replies and memory forming go through **Codex**, OpenAI's own command-line tool, signed in with your ChatGPT account. They count against your ChatGPT plan's usage limits instead of costing API credits.
+
+1. Install Codex and sign in, choosing **Sign in with ChatGPT**:
+
+   ```bash
+   npm install -g @openai/codex
+   ```
+
+   ```bash
+   codex login
+   ```
+
+2. Run `npm run setup` and choose `chatgpt`, or set `BRAIN=chatgpt` in `.env` and restart.
+
+Trade-offs:
+- **Slower:** about 5 seconds a reply (around 10 s for the first), and the reply arrives all at once.
+- **Usage limits:** Codex adds its own instructions to every call (about 15,000–20,000 tokens). That doesn't cost money, but it uses your plan's limit faster. The **Tokens** chip shows these as "ChatGPT plan" and leaves them out of the billed count.
+- **Models:** with a ChatGPT sign-in, only Codex's own models work (`CODEX_MODEL`, default `gpt-6-sol`).
+- **Keep an OpenAI API key if you can:** it's the backup when ChatGPT is slow, fails or hits its limit, and it powers recall by meaning (a few cents a month). Without it, recall matches words.
+- **Keep it personal:** it's for your own use on your own computer, with your own account.
+
+Codex runs in an empty folder with a read-only sandbox and never sees this project's files. Only the prompt is sent, the same as with an API key.
 
 `.env.example` lists every setting with an explanation. Never share `.env` or paste your key into a chat: anyone with it can spend your credit.
 
@@ -216,7 +243,8 @@ This makes `<folder name>-share.zip` next to this folder. It contains only the a
 | No sound | Click anywhere on the page once (browsers block sound until you do). Check the volume. Off a Mac, set up ElevenLabs. |
 | Mic button missing or blocked | Use Chrome or Safari, and allow the microphone when asked. |
 | Stuck on "Loading avatar" | The 3D library and sample avatar load from the internet, so check the connection, then refresh. |
-| Replies feel slow | Set `OPENAI_MODEL=gpt-5.4-mini` in `.env` and restart. |
+| Replies feel slow | Set `OPENAI_MODEL=gpt-5.4-mini` in `.env` and restart. With `BRAIN=chatgpt`, about 5 seconds is normal. |
+| `BRAIN=chatgpt`: "Codex isn't signed in" or "Codex is not installed" | Run `npm install -g @openai/codex`, then `codex login` and choose Sign in with ChatGPT. Restart the twin. Meanwhile the backup model answers if you have an OpenAI key. |
 | Something else | Run `npm run check`, and read the Terminal window running the twin for errors. |
 
 ## Where data goes

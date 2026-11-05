@@ -123,29 +123,49 @@ const changes = {};
 console.log(bold('\n3. The twin'));
 changes.TWIN_NAME = await ask("Twin's name, shown on the page", values.TWIN_NAME || 'Twin');
 
-console.log(bold('\n4. The brain (needs an API key)'));
+console.log(bold('\n4. The brain (an API key, or your ChatGPT sign-in)'));
 console.log('  openai: GPT. Get a key at https://platform.openai.com/api-keys (billed separately from ChatGPT).');
 console.log('  claude: Claude. Get a key at https://platform.claude.com (Settings, API keys).');
-const brain = await choose('Which brain', ['openai', 'claude'], values.BRAIN === 'claude' ? 'claude' : 'openai');
+console.log('  chatgpt: GPT on your ChatGPT plan instead of API credits, through OpenAI\'s Codex tool. Slower (about 5 s a reply).');
+const brain = await choose('Which brain', ['openai', 'claude', 'chatgpt'], ['claude', 'chatgpt'].includes(values.BRAIN) ? values.BRAIN : 'openai');
 changes.BRAIN = brain;
-const keyName = brain === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY';
+if (brain === 'chatgpt') {
+  // Codex signs in with your ChatGPT account; an OpenAI API key is still useful as a backup.
+  for (;;) {
+    // Codex prints its sign-in status on stderr, so both streams are read.
+    const run = spawnSync('codex', ['login', 'status'], { encoding: 'utf8' });
+    const status = run.error?.code === 'ENOENT' ? 'not installed' : `${run.stdout ?? ''}${run.stderr ?? ''}`;
+    if (/logged in/i.test(status) && /chatgpt/i.test(status)) {
+      ok('Codex is signed in with ChatGPT');
+      break;
+    }
+    warn(status === 'not installed' ? 'Codex is not installed.' : 'Codex is not signed in with ChatGPT.');
+    console.log('  In another Terminal window, run:');
+    if (status === 'not installed') console.log('    npm install -g @openai/codex');
+    console.log('    codex login        (choose "Sign in with ChatGPT")');
+    if (!(await yes('Done? Check again', 'y'))) break;
+  }
+  console.log('  An OpenAI API key is optional but recommended: it is the backup when ChatGPT is slow or at its limit, and it powers recall by meaning (a few cents a month).');
+}
+const keyName = brain === 'claude' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY';
 let key = values[keyName];
 if (key && !(await yes(`A ${brain} key is already saved. Keep it?`))) key = '';
 while (!key) {
-  key = await askSecret(`Paste your ${brain} API key`);
+  key = await askSecret(`Paste your ${brain === 'claude' ? 'Anthropic' : 'OpenAI'} API key${brain === 'chatgpt' ? ' (Enter to skip)' : ''}`);
   if (!key) {
+    if (brain === 'chatgpt') break;
     if (await yes('No key entered. Continue without one (the twin only echoes you in demo mode)?', 'n')) break;
     continue;
   }
 }
 if (key) {
   process.stdout.write('  Testing the key... ');
-  const result = await testKey(brain, key);
+  const result = await testKey(brain === 'claude' ? 'claude' : 'openai', key);
   console.log(result.ok ? 'works.' : `didn't work: ${result.why}`);
   if (!result.ok && !(await yes('Save it anyway?', 'n'))) key = values[keyName] ?? '';
   changes[keyName] = key;
 }
-if (brain === 'openai') ok(`Backup model: ${values.FALLBACK_MODEL || 'gpt-5.4-mini'} answers if the main one fails (change FALLBACK_MODEL in .env).`);
+if (brain !== 'claude' && key) ok(`Backup model: ${values.FALLBACK_MODEL || 'gpt-5.4-mini'} answers if the main one fails (change FALLBACK_MODEL in .env).`);
 else if (!values.OPENAI_API_KEY) warn('Without an OpenAI key there is no backup model and recall matches words instead of meaning. You can add OPENAI_API_KEY to .env later.');
 
 console.log(bold('\n5. Voice'));

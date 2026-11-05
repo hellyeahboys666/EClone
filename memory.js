@@ -447,6 +447,7 @@ export function createMemory({ dir, name, completeJson, embed, onError, reflect:
 
   async function recordUsage(kind, used) {
     if (!used) return;
+    if (used.plan) kind = 'plan'; // on the ChatGPT plan through Codex: not billed
     const day = localDay();
     for (const bucket of [usage.total, (usage.days[day] ??= {})]) {
       const b = (bucket[kind] ??= { input: 0, cached: 0, output: 0, requests: 0 });

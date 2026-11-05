@@ -92,7 +92,7 @@ async function init() {
 }
 
 function setBrainChip(brain, model) {
-  els.brainChip.textContent = brain === 'demo' ? 'Brain: demo mode (no API key)' : `Brain: ${model}`;
+  els.brainChip.textContent = brain === 'demo' ? 'Brain: demo mode (no API key)' : brain === 'chatgpt' ? `Brain: ${model} · ChatGPT plan` : `Brain: ${model}`;
   els.brainChip.classList.toggle('warn', brain === 'demo');
 }
 
@@ -123,9 +123,9 @@ async function maybeSpeakFirst() {
   const res = await fetch('/api/opener', { method: 'POST' });
   const { line, totals } = await res.json();
   if (!line || currentTurn) return;
-  addBubble('twin', line);
+  const caption = createCaption(addBubble('twin', ''));
   if (totals) showUsage(null, totals);
-  speech.sayIfAllowed(line);
+  caption.say(line);
 }
 
 // The twin's schedule, checked every minute: what it's doing (the status chip),
@@ -146,9 +146,9 @@ async function checkSchedule() {
   else if (label !== lastStatus && lastStatus.startsWith('Out')) hint('');
   lastStatus = label;
   if (line && !currentTurn) {
-    addBubble('twin', line);
+    const caption = createCaption(addBubble('twin', ''));
     if (totals) showUsage(null, totals);
-    speech.sayIfAllowed(line);
+    caption.say(line);
   }
 }
 
@@ -189,8 +189,14 @@ async function newChat() {
   }
 }
 
+// Billed tokens only: 'plan' is the ChatGPT plan through Codex, which isn't billed.
 function tokens(bucket) {
-  return Object.values(bucket ?? {}).reduce((sum, b) => sum + (b?.input ?? 0) + (b?.output ?? 0), 0);
+  return Object.entries(bucket ?? {}).reduce((sum, [kind, b]) => (kind === 'plan' ? sum : sum + (b?.input ?? 0) + (b?.output ?? 0)), 0);
+}
+
+function planTokens(bucket) {
+  const b = bucket?.plan;
+  return b ? (b.input ?? 0) + (b.output ?? 0) : 0;
 }
 
 function short(n) {
@@ -200,14 +206,16 @@ function short(n) {
 // Tokens chip: the last reply and today's total, with a breakdown on hover.
 function showUsage(last, totals) {
   const today = tokens(totals?.today);
-  els.tokenChip.textContent = last ? `Tokens: ${short(last.input + last.output)} last · ${short(today)} today` : `Tokens: ${short(today)} today`;
+  const lastText = last?.plan ? 'ChatGPT plan' : last ? `${short(last.input + last.output)} last` : '';
+  els.tokenChip.textContent = last ? `Tokens: ${lastText} · ${short(today)} today` : `Tokens: ${short(today)} today`;
   const lines = [];
   if (last) {
-    lines.push(`Last reply: ${last.input.toLocaleString()} in (${last.cached.toLocaleString()} cached), ${last.output.toLocaleString()} out`);
+    lines.push(`Last reply: ${last.input.toLocaleString()} in (${last.cached.toLocaleString()} cached), ${last.output.toLocaleString()} out${last.plan ? ', on your ChatGPT plan (not billed)' : ''}`);
   }
   const memoryToday = tokens({ memory: totals?.today?.memory });
   lines.push(`Today: ${today.toLocaleString()} (memory upkeep ${memoryToday.toLocaleString()})`);
   lines.push(`All time: ${tokens(totals?.total).toLocaleString()}`);
+  if (planTokens(totals?.total)) lines.push(`On your ChatGPT plan, not billed: ${planTokens(totals?.today).toLocaleString()} today, ${planTokens(totals?.total).toLocaleString()} all time`);
   els.tokenChip.title = lines.join('\n');
 }
 
@@ -244,6 +252,7 @@ async function send(rawText) {
   addBubble('user', text);
 
   const bubble = addBubble('twin', '');
+  const caption = createCaption(bubble);
   const turn = new AbortController();
   currentTurn = turn;
   activity = 'thinking';
@@ -261,14 +270,12 @@ async function send(rawText) {
 
     for await (const event of readEvents(res)) {
       if (event.type === 'text') {
-        if (activity === 'thinking') activity = 'idle';
+        // The words show up as they're spoken (see createCaption), not as they arrive.
         reply += event.text;
         unspoken += event.text;
-        bubble.textContent = reply;
-        els.log.scrollTop = els.log.scrollHeight;
         let cut;
         while ((cut = sentenceEnd(unspoken)) > 0) {
-          speech.say(unspoken.slice(0, cut));
+          caption.say(unspoken.slice(0, cut));
           unspoken = unspoken.slice(cut);
         }
       } else if (event.type === 'mood') {
@@ -277,6 +284,7 @@ async function send(rawText) {
       } else if (event.type === 'refusal') {
         hint('Claude declined to answer that one.');
       } else if (event.type === 'error') {
+        caption.stop();
         bubble.classList.add('error');
         bubble.textContent = event.message;
       } else if (event.type === 'done') {
@@ -285,9 +293,10 @@ async function send(rawText) {
         if (event.fallback) hint(`The backup model answered: ${event.fallback.from} didn't (${event.fallback.reason}).`);
       }
     }
-    if (unspoken.trim()) speech.say(unspoken);
+    if (unspoken.trim()) caption.say(unspoken);
   } catch (err) {
     if (err.name !== 'AbortError') {
+      caption.stop();
       bubble.classList.add('error');
       bubble.textContent = err.message;
     }
@@ -297,6 +306,66 @@ async function send(rawText) {
       if (activity === 'thinking') activity = 'idle';
     }
   }
+}
+
+// Subtitles for the twin: a reply's words appear in its bubble as the voice says
+// them, not all at once. Each sentence's words are spread over its audio, longer
+// words taking a little longer. Without sound they appear at a speaking pace.
+const WORDS_PER_SECOND = 2.8;
+
+function createCaption(bubble) {
+  let shown = ''; // everything that's been (or is being) said so far
+  let stopped = false;
+  let latest = 0; // a newer sentence takes over from one still finishing
+
+  function reveal(text, seconds, isCurrent) {
+    const id = ++latest;
+    const tokens = text.match(/\S+\s*/g) ?? [];
+    const weights = tokens.map((t) => t.trim().length + 2);
+    const total = weights.reduce((a, b) => a + b, 0) || 1;
+    // When each word starts, as a fraction of the sentence.
+    let at = 0;
+    const starts = weights.map((w) => ((at += w) - w) / total);
+    const base = shown;
+    shown = base + tokens.join('');
+    const began = performance.now();
+    return new Promise((resolve) => {
+      function frame() {
+        if (stopped || !isCurrent() || id !== latest) return resolve();
+        const progress = (performance.now() - began) / (seconds * 1000);
+        const count = starts.filter((t) => t <= progress).length;
+        const text = base + tokens.slice(0, count).join('');
+        if (text !== bubble.textContent) {
+          bubble.textContent = text;
+          els.log.scrollTop = els.log.scrollHeight;
+        }
+        if (count < tokens.length || progress < 1) return requestAnimationFrame(frame);
+        resolve();
+      }
+      frame();
+    });
+  }
+
+  return {
+    // Speaks a piece of the reply and shows its words in time with the voice.
+    say(text) {
+      speech.say(text, {
+        start: (seconds, isCurrent) => {
+          if (activity === 'thinking') activity = 'idle';
+          reveal(text, seconds, isCurrent);
+        },
+        silent: (isCurrent) => {
+          if (activity === 'thinking') activity = 'idle';
+          const words = (text.match(/\S+/g) ?? []).length;
+          return reveal(text, Math.max(0.4, words / WORDS_PER_SECOND), isCurrent);
+        },
+      });
+    },
+    // An error replaces the bubble's text; nothing more gets revealed after it.
+    stop() {
+      stopped = true;
+    },
+  };
 }
 
 // Index just past the first sentence end that leaves a chunk long enough to
@@ -347,26 +416,35 @@ function createSpeechQueue(onError) {
     ctx.resume();
   }
 
-  function say(text) {
+  // Queues a sentence. `hooks.start(seconds, isCurrent)` runs as its audio begins, and
+  // `hooks.silent(isCurrent)` (which should wait about as long as saying it would take)
+  // runs instead when there's no sound: not allowed yet, or the voice failed.
+  function say(text, hooks = {}) {
     const gen = generation;
-    const audio = fetch('/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    })
-      .then(async (r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error((await r.json()).error))))
-      .then((buf) => ctx.decodeAudioData(buf));
+    const isCurrent = () => gen === generation;
+    const audible = ctx?.state === 'running';
+    const audio = audible
+      ? fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        })
+          .then(async (r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error((await r.json()).error))))
+          .then((buf) => ctx.decodeAudioData(buf))
+      : Promise.resolve(null);
     audio.catch(() => {}); // reported when its turn comes in the chain
     chain = chain.then(async () => {
-      if (gen !== generation) return;
-      let buffer;
+      if (!isCurrent()) return;
+      let buffer = null;
       try {
         buffer = await audio;
       } catch (err) {
         onError(err);
-        return;
       }
-      if (gen === generation) await play(buffer);
+      if (!isCurrent()) return;
+      if (!buffer) return hooks.silent?.(isCurrent);
+      hooks.start?.(buffer.duration, isCurrent);
+      await play(buffer);
     });
   }
 
@@ -400,12 +478,7 @@ function createSpeechQueue(onError) {
     return Math.max(0, Math.min(1, rms * 4 - 0.03));
   }
 
-  // Speaks only if sound is already allowed; browsers block it until you've clicked.
-  function sayIfAllowed(text) {
-    if (ctx?.state === 'running') say(text);
-  }
-
-  return { unlock, say, sayIfAllowed, stop, level };
+  return { unlock, say, stop, level };
 }
 
 // Browser speech recognition (Chrome and Safari). Click to talk; it sends

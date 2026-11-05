@@ -2,7 +2,7 @@
 // Health check: npm run check   (add -- --offline to skip testing the keys)
 // Goes through everything the twin needs and says how to fix what's missing.
 // Prints counts only, never keys, persona text or memories.
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,9 +44,17 @@ if (existsSync(envFile)) {
   ok(`.env found${mode & 0o077 ? ' (readable by other users on this Mac; chmod 600 .env makes it private)' : ''}`);
 } else fail('No .env settings file', 'npm run setup');
 
-const brain = env.BRAIN === 'openai' ? 'openai' : 'claude';
-const keyName = brain === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY';
-if (!existsSync(envFile)) {
+const brain = ['openai', 'chatgpt'].includes(env.BRAIN) ? env.BRAIN : 'claude';
+const keyName = brain === 'claude' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY';
+if (brain === 'chatgpt') {
+  // Codex prints its sign-in status on stderr, so both streams are read.
+  const run = spawnSync(process.env.CODEX_BIN || env.CODEX_BIN || 'codex', ['login', 'status'], { encoding: 'utf8' });
+  const status = run.error?.code === 'ENOENT' ? 'not installed' : `${run.stdout ?? ''}${run.stderr ?? ''}`;
+  if (/logged in/i.test(status) && /chatgpt/i.test(status)) ok(`Brain: ChatGPT plan through Codex (${env.CODEX_MODEL || 'gpt-6-sol'})`);
+  else if (status === 'not installed') fail('Brain is chatgpt, but Codex is not installed', 'npm install -g @openai/codex, then codex login');
+  else fail('Brain is chatgpt, but Codex is not signed in with ChatGPT', 'codex login (choose Sign in with ChatGPT)');
+}
+if (!existsSync(envFile) || brain === 'chatgpt') {
   // Nothing to check until setup has written .env.
 } else if (!env[keyName] && !(brain === 'claude' && env.ANTHROPIC_AUTH_TOKEN)) {
   fail(`Brain is ${brain}, but ${keyName} is empty, so the twin is in demo mode`, 'npm run setup');

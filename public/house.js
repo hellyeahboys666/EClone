@@ -13,6 +13,7 @@ const WALL = 0.15; // thickness of the back wall, which has the openings
 const WINDOW = { x0: -2.3, x1: -0.6, y0: 0.85, y1: 2.3 };
 const DOOR = { x0: 1.0, x1: 2.0, y1: 2.15 }; // doorway to the kitchen
 const KITCHEN = { left: 0.4, right: 3.6, back: -5.4 };
+const SILL_TOP = WINDOW.y0 + 0.004; // window sill, just above the opening's bottom edge
 
 // How each time of day looks: the sky, the sun (or moon), the soft light from the
 // sky, the light toward the viewer's side, reflections, and overall exposure.
@@ -57,6 +58,24 @@ export function buildHouse(config) {
   const box = (w, h, d, material, pos, opts) => add(new THREE.BoxGeometry(w, h, d), material, pos, opts);
   const rounded = (w, h, d, r, material, pos, opts) => add(new RoundedBoxGeometry(w, h, d, 3, r), material, pos, opts);
   const cylinder = (rTop, rBottom, h, material, pos, opts) => add(new THREE.CylinderGeometry(rTop, rBottom, h, 24), material, pos, opts);
+  // Thin things laid on a surface (a picture on its mat, a rug on the floor, a light
+  // in the ceiling): drawn in front of what's behind them, so the two never flicker.
+  const overlay = (material) => Object.assign(material, { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 });
+  // A flower pot: open at the top, with a wall you can see over and soil sunk below
+  // the rim (a closed cylinder with soil on its lid flickers where the two meet).
+  const pot = (rTop, rBottom, h, color, [x, y, z], soilDepth) => {
+    const wall = Math.max(0.008, rTop * 0.08);
+    const clay = mat(color, { roughness: 0.6 });
+    const segments = 32;
+    add(new THREE.CylinderGeometry(rTop, rBottom, h, segments, 1, true), clay, [x, y + h / 2, z]);
+    // Inside wall, down to the soil (BackSide: we see it from inside the pot).
+    const innerTop = rTop - wall;
+    const innerAtSoil = innerTop - (rTop - rBottom) * (soilDepth / h);
+    add(new THREE.CylinderGeometry(innerTop, innerAtSoil, soilDepth, segments, 1, true), mat(shadeHex(color, -0.18), { roughness: 0.7, side: THREE.BackSide }), [x, y + h - soilDepth / 2, z], { cast: false });
+    add(new THREE.RingGeometry(innerTop, rTop, segments), clay, [x, y + h, z], { rot: [-Math.PI / 2, 0, 0], cast: false });
+    add(new THREE.CircleGeometry(innerAtSoil + 0.002, segments), mat('#3b2b20', { roughness: 1 }), [x, y + h - soilDepth, z], { rot: [-Math.PI / 2, 0, 0], cast: false });
+    return y + h - soilDepth; // where the soil is
+  };
 
   const width = ROOM.right - ROOM.left;
   const depth = ROOM.front - ROOM.back;
@@ -125,7 +144,9 @@ export function buildHouse(config) {
   box(0.045, wh, 0.07, trim, [wx, wy, wz]);
   box(ww, 0.045, 0.07, trim, [wx, WINDOW.y0 + wh * 0.62, wz]);
   add(new THREE.PlaneGeometry(ww, wh), new THREE.MeshStandardMaterial({ color: '#dfeef7', transparent: true, opacity: 0.1, roughness: 0.05, metalness: 0.1 }), [wx, wy, wz], { cast: false });
-  box(ww + 0.16, 0.04, 0.26, trim, [wx, WINDOW.y0 - 0.02, ROOM.back + 0.06]); // sill
+  // Sill: its top sits a few mm above the bottom of the window opening, not level
+  // with it, so the two surfaces don't flicker against each other.
+  box(ww + 0.16, 0.04, 0.26, trim, [wx, SILL_TOP - 0.02, ROOM.back + 0.06]);
   // Casing around the window on the room side.
   box(ww + 0.16, 0.08, 0.02, trim, [wx, WINDOW.y1 + 0.04, ROOM.back + 0.01]);
   box(0.08, wh, 0.02, trim, [WINDOW.x0 - 0.04, wy, ROOM.back + 0.01]);
@@ -171,15 +192,15 @@ export function buildHouse(config) {
   add(new THREE.SphereGeometry(0.03, 16, 12), steel, [ROOM.right - 0.07, 1.0, 2.75]);
 
   // ---- Ceiling lights -------------------------------------------------------
-  const downlight = mat('#ffffff', { emissive: '#fff1d6', emissiveIntensity: lit ? 2 : 0.05 });
+  const downlight = overlay(mat('#ffffff', { emissive: '#fff1d6', emissiveIntensity: lit ? 2 : 0.05 }));
   for (const [x, z] of [[-1.6, -0.8], [1.2, -0.8], [-1.6, 1.9], [1.2, 1.9]]) {
-    add(new THREE.CircleGeometry(0.06, 24), downlight, [x, ROOM.height - 0.002, z], { rot: [Math.PI / 2, 0, 0], cast: false });
+    add(new THREE.CircleGeometry(0.06, 24), downlight, [x, ROOM.height - 0.003, z], { rot: [Math.PI / 2, 0, 0], cast: false });
   }
 
   // ---- Furniture ------------------------------------------------------------
   // Rug in the middle of the room.
   const rug = texture(1024, 720, (ctx, w, h) => drawRug(ctx, w, h, config.rugColor, seeded(5)));
-  add(new THREE.PlaneGeometry(3.0, 2.1), mat('#ffffff', { map: rug, roughness: 1 }), [0.6, 0.004, 0.5], { rot: [-Math.PI / 2, 0, 0], cast: false });
+  add(new THREE.PlaneGeometry(3.0, 2.1), overlay(mat('#ffffff', { map: rug, roughness: 1 })), [0.6, 0.004, 0.5], { rot: [-Math.PI / 2, 0, 0], cast: false });
 
   // Sofa against the right wall, facing into the room.
   const fabric = mat(config.sofaColor, { roughness: 0.95 });
@@ -187,7 +208,7 @@ export function buildHouse(config) {
   const sz = 0.4;
   rounded(0.95, 0.36, 2.3, 0.05, fabricDark, [3.05, 0.26, sz]);
   rounded(0.24, 0.62, 2.3, 0.06, fabricDark, [3.46, 0.62, sz]);
-  for (const z of [sz - 1.12, sz + 1.12]) rounded(0.95, 0.6, 0.2, 0.06, fabric, [3.05, 0.42, z]);
+  for (const z of [sz - 1.12, sz + 1.12]) rounded(0.97, 0.6, 0.2, 0.06, fabric, [3.05, 0.42, z]); // a bit wider than the base: no shared faces
   for (const z of [sz - 0.5, sz + 0.5]) {
     rounded(0.72, 0.15, 0.98, 0.06, fabric, [2.98, 0.5, z]);
     rounded(0.2, 0.46, 0.98, 0.08, fabric, [3.3, 0.8, z], { rot: [0, 0, 0.18] });
@@ -222,7 +243,7 @@ export function buildHouse(config) {
     rounded(0.42, 0.5, 1.8, 0.01, walnut, [-3.37, 0.27, 0.7]);
     box(0.005, 0.4, 0.004, metal, [-3.155, 0.27, 0.7]);
     box(0.04, 0.8, 1.4, metal, [-3.56, 1.32, 0.7]);
-    add(new THREE.PlaneGeometry(1.36, 0.76), mat('#07080a', { roughness: 0.12, metalness: 0.3 }), [-3.538, 1.32, 0.7], { rot: [0, Math.PI / 2, 0], cast: false });
+    add(new THREE.PlaneGeometry(1.36, 0.76), overlay(mat('#07080a', { roughness: 0.12, metalness: 0.3 })), [-3.536, 1.32, 0.7], { rot: [0, Math.PI / 2, 0], cast: false });
     box(0.08, 0.07, 0.7, metal, [-3.3, 0.555, 0.7]);
   }
 
@@ -240,6 +261,7 @@ export function buildHouse(config) {
       while (z < end) {
         const t = 0.025 + random() * 0.03;
         const h = 0.2 + random() * 0.1;
+        if (z + t > -0.67) break; // the last book would poke through the side panel
         box(0.22, h, t, mat(pick(spines, random), { roughness: 0.7 }), [x + 0.03, y + 0.015 + h / 2, z + t / 2]);
         z += t + 0.004;
       }
@@ -252,7 +274,7 @@ export function buildHouse(config) {
     plant(2.75, -2.2, 1.6, 22, '#d9d2c6');
     plant(-3.25, 1.95, 0.9, 12, '#b9714f');
     // A small one on the window sill.
-    cylinder(0.06, 0.05, 0.09, mat('#c8a07c'), [WINDOW.x1 - 0.3, WINDOW.y0 + 0.045, ROOM.back + 0.08]);
+    pot(0.06, 0.05, 0.09, '#c8a07c', [WINDOW.x1 - 0.3, SILL_TOP, ROOM.back + 0.08], 0.014);
     for (let i = 0; i < 6; i++) {
       add(new THREE.IcosahedronGeometry(0.035, 0), mat('#5f8f5a', { roughness: 0.7 }), [WINDOW.x1 - 0.3 + (random() - 0.5) * 0.07, WINDOW.y0 + 0.12 + random() * 0.04, ROOM.back + 0.08 + (random() - 0.5) * 0.07]);
     }
@@ -310,9 +332,9 @@ export function buildHouse(config) {
 
   function plant(x, z, height, leafCount, potColor) {
     const potR = 0.12 + height * 0.06;
-    cylinder(potR, potR * 0.8, 0.36, mat(potColor, { roughness: 0.6 }), [x, 0.18, z]);
-    cylinder(potR * 0.92, potR * 0.92, 0.01, mat('#3b2b20'), [x, 0.355, z], { cast: false });
-    cylinder(0.012, 0.016, height - 0.4, mat('#5a4430'), [x, 0.36 + (height - 0.4) / 2, z]);
+    const soil = pot(potR, potR * 0.8, 0.36, potColor, [x, 0, z], 0.035);
+    const stemTop = height - 0.04;
+    cylinder(0.012, 0.016, stemTop - soil, mat('#5a4430'), [x, (soil + stemTop) / 2, z]);
     const leaf = new THREE.SphereGeometry(1, 14, 10);
     for (let i = 0; i < leafCount; i++) {
       const t = 0.25 + (i / leafCount) * 0.75;
@@ -335,8 +357,8 @@ export function buildHouse(config) {
     frame.rotation.y = turn;
     group.add(frame);
     add(new THREE.BoxGeometry(w, h, 0.03), mat('#2b2622', { roughness: 0.5 }), [0, 0, 0.015], { parent: frame });
-    add(new THREE.PlaneGeometry(w - 0.05, h - 0.05), mat('#f4f1ea', { roughness: 0.9 }), [0, 0, 0.031], { parent: frame, cast: false });
-    add(new THREE.PlaneGeometry(w - 0.16, h - 0.16), mat('#ffffff', { map: art, roughness: 0.85 }), [0, 0, 0.032], { parent: frame, cast: false });
+    add(new THREE.PlaneGeometry(w - 0.05, h - 0.05), overlay(mat('#f4f1ea', { roughness: 0.9 })), [0, 0, 0.033], { parent: frame, cast: false });
+    add(new THREE.PlaneGeometry(w - 0.16, h - 0.16), overlay(mat('#ffffff', { map: art, roughness: 0.85 })), [0, 0, 0.036], { parent: frame, cast: false });
   }
 
   function buildKitchen() {
@@ -358,13 +380,14 @@ export function buildHouse(config) {
     box(kw, 0.08, 0.54, mat('#3a3633'), [kx, 0.04, cz - 0.03]);
     box(kw + 0.02, 0.04, 0.64, mat('#d6d1c8', { roughness: 0.22 }), [kx, 0.9, cz + 0.02]);
     const backsplash = texture(512, 256, (ctx, w, h) => drawSubwayTile(ctx, w, h), [kw / 1.0, 1]);
-    add(new THREE.PlaneGeometry(kw, 0.6), mat('#ffffff', { map: backsplash, roughness: 0.25 }), [kx, 1.22, KITCHEN.back + 0.003], { cast: false });
+    add(new THREE.PlaneGeometry(kw, 0.6), overlay(mat('#ffffff', { map: backsplash, roughness: 0.25 })), [kx, 1.22, KITCHEN.back + 0.004], { cast: false });
     box(kw - 0.9, 0.72, 0.34, cabinet, [kx - 0.45, 1.88, KITCHEN.back + 0.17]);
+    const seam = overlay(mat('#bdb6aa'));
     for (let x = KITCHEN.left + 0.6; x < KITCHEN.right - 0.1; x += 0.6) {
-      box(0.006, 0.76, 0.004, mat('#bdb6aa'), [x, 0.48, cz + 0.301]);
+      box(0.006, 0.76, 0.004, seam, [x, 0.48, cz + 0.301]);
       box(0.12, 0.012, 0.02, steel, [x - 0.3, 0.8, cz + 0.31]);
     }
-    for (let x = KITCHEN.left + 0.55; x < KITCHEN.right - 0.95; x += 0.55) box(0.006, 0.68, 0.004, mat('#bdb6aa'), [x, 1.88, KITCHEN.back + 0.341]);
+    for (let x = KITCHEN.left + 0.55; x < KITCHEN.right - 0.95; x += 0.55) box(0.006, 0.68, 0.004, seam, [x, 1.88, KITCHEN.back + 0.341]);
     // Fridge in the corner.
     box(0.78, 1.86, 0.66, steel, [KITCHEN.right - 0.42, 0.93, KITCHEN.back + 0.34]);
     box(0.02, 0.5, 0.03, metal, [KITCHEN.right - 0.76, 1.35, KITCHEN.back + 0.69]);

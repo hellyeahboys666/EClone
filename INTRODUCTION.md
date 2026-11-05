@@ -37,7 +37,10 @@ Who the twin is based on is described only in the private persona notes (see "Wo
 3. **Recall:** using the last three messages as the cue, `memory.js` picks the long-term memories related to them by meaning, plus the most important ones (like your name). Faded small memories come back marked fuzzy.
 4. The server builds the instructions for the model from six parts: `rules.md` (how to behave), the notes in `persona/` (who to be), the recalled memories, the room it's standing in (with anything that changed), its schedule (what it's doing, what's next, what just ended), and the current mood. While the schedule has it out, the room is replaced with "you're not at home". Each of your messages is stamped with when you sent it, for example `[Wednesday, November 4, 2026 at 9:42 PM, back after about 3 hours]`.
 5. The reply streams back from GPT or Claude. It starts with a hidden mood tag, like `[mood: annoyed 6 | they brushed off my point]`. The server removes the tag and saves the mood. The browser gets the mood for the face and the Mood chip, then the reply text as it arrives.
-6. The browser shows the text, cuts it into sentences, and asks the server to turn each one into audio (`POST /api/tts`). The sentences play in order, and the loudness of the audio drives the avatar's mouth.
+6. The browser cuts the text into sentences and asks the server to turn each one into audio (`POST /api/tts`). The sentences play in order, and the loudness of the audio drives the avatar's mouth.
+   - The words aren't shown as they arrive. Each sentence's words appear in the bubble while its audio plays, spread over the audio's length, with longer words getting a little more time (`createCaption` in `app.js`).
+   - Without sound (not allowed yet, or a voice error), they appear at about 2.8 words a second.
+   - Interrupting stops the words where they are.
 7. The server saves the reply (even if you cut it off) and counts the tokens used.
 8. Later, when you've been quiet for 10 minutes, every 16 messages, or when you click **New chat**, the conversation is turned into long-term memories.
 
@@ -62,6 +65,13 @@ you ──text/speech──▶ browser (public/) ──▶ server.js ──▶ G
 | `persona-template/` | The starting persona: a writing guide with 15 interview questions, and four fill-in notes marked "(replace this)". |
 | `public/mind.html`, `mind.js`, `mind.css` | The Mind page (`/mind`).<br>• Edit, add and delete persona notes, and edit `rules.md`.<br>• Search, edit, add and forget memories, change their importance, or forget everything.<br>• Reset the mood, or clear the chat without remembering it.<br>Changes go through `POST /api/mind`, so they're safe while the twin runs and memories are forming. |
 | `memory.js` | The twin's memory: saving the conversation, forming memories and impressions, recall by meaning, fading, and token counts. |
+| `codex.js` | The ChatGPT sign-in brain (`BRAIN=chatgpt`). Each message runs `codex exec`:
+• signed in with ChatGPT, so it uses the ChatGPT plan, not API credits
+• in an empty folder, with a read-only sandbox, no saved sessions and no tool servers
+• with the API keys removed from its environment
+• talking to ChatGPT directly (`CODEX_BASE_URL`)
+
+The prompt goes in on stdin. The reply comes back in one piece through its JSON events, and memory forming uses `--output-schema`. It takes about 5 s a reply, and Codex adds about 15–20k tokens of its own to each call. Those tokens are recorded as `plan` (not billed). If Codex fails or isn't ready, the backup model answers. |
 | `mood.js` | The twin's mood: reading the hidden mood tag, saving the feeling, and fading it over time. |
 | `rules.md` | General behavior rules for any twin (how to talk, time and memory, having opinions, honesty). Re-read on every message. |
 | `persona/` | Notes about the person: who they are, how they talk, their opinions. Re-read on every message. **Private.** |
@@ -164,7 +174,7 @@ Every write goes to a temporary file first and is then renamed into place, so a 
 
 | Key | Meaning |
 |---|---|
-| `BRAIN` | `openai` or `claude` |
+| `BRAIN` | `openai`, `claude` or `chatgpt` (ChatGPT plan through Codex; see `codex.js`) |
 | `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_REASONING_EFFORT` | GPT settings (default `gpt-5.4`, effort `low`). Replies also use low verbosity, to keep them short. |
 | `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`, `CLAUDE_EFFORT` | Claude settings (default `claude-opus-5-5`, effort `low`). The rules and persona are prompt-cached. |
 | `FALLBACK_MODEL`, `FALLBACK_AFTER_SECONDS` | Backup model (default `gpt-5.4-mini`; a name starting with `claude` uses Claude; `none` turns it off). It answers when the main model fails or hasn't started answering after 20 seconds, and also forms memories and decides about speaking first if the main model fails. The page shows a note when it answered, and the Brain chip's tooltip names it. |

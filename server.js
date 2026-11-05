@@ -10,6 +10,7 @@ import { promisify } from 'node:util';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { createMemory, formatTime, loadJson, saveJson } from './memory.js';
+import { createCodex } from './codex.js';
 import { FEELINGS, createMood, createTagReader, moodTag, splitMoodTag } from './mood.js';
 import { cleanHouse } from './public/house-config.js';
 import { describeHouse, houseChanges } from './surroundings.js';
@@ -35,11 +36,17 @@ const config = {
   memoryDir: path.resolve(ROOT, process.env.MEMORY_DIR || 'memory'),
   houseFile: path.resolve(ROOT, process.env.HOUSE_FILE || 'house.json'), // the House panel's settings
   scheduleFile: path.resolve(ROOT, process.env.SCHEDULE_FILE || 'schedule.json'), // the twin's weekly schedule (private)
-  brain: process.env.BRAIN === 'openai' ? 'openai' : 'claude',
+  // openai (GPT through the API), claude (Claude through the API), or chatgpt (GPT through
+  // Codex, signed in with your ChatGPT account, so it uses your ChatGPT plan; see codex.js).
+  brain: ['openai', 'claude', 'chatgpt'].includes(process.env.BRAIN) ? process.env.BRAIN : 'claude',
   model: process.env.CLAUDE_MODEL || 'claude-opus-5-5',
   effort: process.env.CLAUDE_EFFORT || 'low',
   openaiModel: process.env.OPENAI_MODEL || 'gpt-5.4',
   openaiEffort: process.env.OPENAI_REASONING_EFFORT || 'low',
+  codexModel: process.env.CODEX_MODEL || 'gpt-6-sol',
+  codexEffort: process.env.CODEX_EFFORT || 'low',
+  // Codex talks to ChatGPT directly, even if its own settings send it elsewhere. "default" uses Codex's settings.
+  codexBaseUrl: process.env.CODEX_BASE_URL || 'https://chatgpt.com/backend-api/codex',
   // Backup model, used when the main one fails or hasn't started answering in time.
   // A name starting with "claude" uses Claude; anything else uses OpenAI. "none" turns it off.
   fallbackModel: process.env.FALLBACK_MODEL || 'gpt-5.4-mini',
@@ -50,13 +57,20 @@ const config = {
   macVoice: process.env.MAC_VOICE || '',
 };
 const useElevenLabs = Boolean(config.elevenKey && config.elevenVoice);
-const brainLabel = config.brain === 'openai' ? 'OpenAI' : 'Claude';
-const brainModel = config.brain === 'openai' ? config.openaiModel : config.model;
+const brainLabel = { openai: 'OpenAI', claude: 'Claude', chatgpt: 'ChatGPT (Codex)' }[config.brain];
+const brainModel = { openai: config.openaiModel, claude: config.model, chatgpt: config.codexModel }[config.brain];
 const execFileAsync = promisify(execFile);
 
 // The models to try, in order: the main one, then the backup if it's set up (and
 // different). Each says which provider runs it.
-const mainModel = { name: brainModel, provider: config.brain };
+const mainModel = { name: brainModel, provider: config.brain === 'chatgpt' ? 'codex' : config.brain };
+const codex = createCodex({
+  bin: process.env.CODEX_BIN,
+  model: config.codexModel,
+  effort: config.codexEffort,
+  baseUrl: config.codexBaseUrl === 'default' ? '' : config.codexBaseUrl,
+});
+const codexStatus = config.brain === 'chatgpt' ? await codex.status() : null;
 const backupModel = (() => {
   const name = config.fallbackModel.trim();
   if (!name || name === 'none' || name === brainModel) return null;
@@ -299,6 +313,7 @@ async function completeJson(system, prompt, schema) {
 }
 
 async function completeJsonWith({ name, provider }, system, prompt, schema) {
+  if (provider === 'codex') return codex.json(system, prompt, schema);
   if (provider === 'openai') {
     const r = await openai().responses.create({
       model: name,
@@ -347,7 +362,9 @@ function describeError(err) {
 
 async function streamDemoReply(lastUserText, send, signal) {
   const reply =
-    `I'm in demo mode, so I can't really think yet. There's no ${brainLabel} API key in the dot env file. ` +
+    (config.brain === 'chatgpt'
+      ? "I'm in demo mode, so I can't really think yet. Codex isn't signed in with ChatGPT; run codex login and restart. "
+      : `I'm in demo mode, so I can't really think yet. There's no ${brainLabel} API key in the dot env file. `) +
     `You said: "${lastUserText.slice(0, 200)}". Once the key is in, I'll answer as myself.`;
   for (const word of reply.split(/(?<=\s)/)) {
     if (signal.aborted) return;
@@ -380,6 +397,11 @@ async function streamClaude(modelName, system, history, send, signal) {
   }
   const final = await stream.finalMessage();
   return { model: final.model, refused: final.stop_reason === 'refusal', usage: claudeUsage(final.usage) };
+}
+
+// ChatGPT through Codex: the whole reply arrives at once (see codex.js).
+function streamCodex(modelName, system, history, send, signal) {
+  return codex.reply(system, history, send, signal);
 }
 
 async function streamOpenAI(modelName, system, history, send, signal) {
@@ -461,6 +483,7 @@ async function handleChat(req, res) {
     // mood, never the tag.
     const attempts = [mainModel, backupModel ?? mainModel];
     let result;
+    let answeredBy = mainModel;
     let fellBack = null;
     for (const [i, model] of attempts.entries()) {
       if (reply.trim() || abort.signal.aborted) break;
@@ -475,13 +498,14 @@ async function handleChat(req, res) {
         felt = m;
         send({ type: 'mood', ...m, at: Date.now(), halfLifeHours: mood.snapshot().halfLifeHours });
       });
-      const stream = model.provider === 'openai' ? streamOpenAI : streamClaude;
+      const stream = { openai: streamOpenAI, claude: streamClaude, codex: streamCodex }[model.provider];
       try {
         result = await stream(model.name, system, cleanHistory(messages), (event) => {
           started = true;
           show(tags.push(event.text));
         }, attempt.signal);
         show(tags.end());
+        answeredBy = model;
         await memory.recordUsage('chat', result.usage);
         if (model !== mainModel) fellBack ??= { from: mainModel.name, reason: 'its reply was empty' };
       } catch (err) {
@@ -498,7 +522,7 @@ async function handleChat(req, res) {
     if (!result) return;
     const { model, refused, usage } = result;
     if (refused) send({ type: 'refusal' });
-    send({ type: 'done', brain: config.brain, model, usage, totals: memory.usageSummary(), ...(fellBack && { fallback: fellBack }) });
+    send({ type: 'done', brain: answeredBy.provider === 'codex' ? 'chatgpt' : answeredBy.provider, model, usage, totals: memory.usageSummary(), ...(fellBack && { fallback: fellBack }) });
   } catch (err) {
     if (!abort.signal.aborted) {
       console.error('[chat]', err);
@@ -714,6 +738,8 @@ async function handleConfig(res) {
 }
 
 function hasBrainKey() {
+  // Without the ChatGPT sign-in, the backup model (API) can still answer.
+  if (config.brain === 'chatgpt') return Boolean(codexStatus?.signedIn || backupModel);
   if (config.brain === 'openai') return Boolean(process.env.OPENAI_API_KEY);
   return Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
 }
@@ -813,7 +839,10 @@ server.on('error', (err) => {
 });
 server.listen(config.port, '127.0.0.1', () => {
   console.log(`Digital twin running at http://localhost:${config.port}`);
-  console.log(`Brain: ${hasBrainKey() ? brainModel : `demo replies (no ${brainLabel} API key)`}`);
+  if (config.brain === 'chatgpt') {
+    if (codexStatus.signedIn) console.log(`Brain: ${brainModel} through Codex, on your ChatGPT plan`);
+    else console.log(`Brain: ChatGPT sign-in isn't ready (${codexStatus.detail}; run: codex login). ${backupModel ? `${backupModel.name} answers meanwhile.` : 'Demo replies until then.'}`);
+  } else console.log(`Brain: ${hasBrainKey() ? brainModel : `demo replies (no ${brainLabel} API key)`}`);
   console.log(`Backup: ${backupModel ? `${backupModel.name} (if ${brainModel} fails or is silent for ${config.fallbackAfterMs / 1000} s)` : 'off'}`);
   console.log(`Voice: ${useElevenLabs ? 'ElevenLabs' : 'Mac say'}`);
 });
