@@ -9,6 +9,7 @@ const els = {
   name: document.getElementById('clone-name'),
   brainChip: document.getElementById('brain-chip'),
   voiceChip: document.getElementById('voice-chip'),
+  updateChip: document.getElementById('update-chip'),
   statusChip: document.getElementById('status-chip'),
   moodChip: document.getElementById('mood-chip'),
   tokenChip: document.getElementById('token-chip'),
@@ -52,8 +53,10 @@ let activity = 'idle';
 
 init();
 
+// The voice chip, and whether replies are spoken at all ("none": text only).
 function setVoiceChip(using, name) {
-  els.voiceChip.textContent = using === 'elevenlabs' ? `Voice: ${name || 'ElevenLabs'}` : 'Voice: Mac built-in';
+  els.voiceChip.textContent = using === 'elevenlabs' ? `Voice: ${name || 'ElevenLabs'}` : using === 'mac' ? 'Voice: Mac built-in' : 'Voice: off';
+  speech.setEnabled(using === 'elevenlabs' || using === 'mac');
 }
 
 async function init() {
@@ -65,6 +68,7 @@ async function init() {
     ? `Backup model: ${config.fallbackModel}. It answers if ${config.model} fails or doesn't start answering in time.`
     : 'No backup model.';
   setVoiceChip(config.voice, config.voiceName);
+  els.updateChip.hidden = !config.updated;
   showUsage(null, config.usage);
   if (config.mood) mood = config.mood;
   showMood();
@@ -172,7 +176,8 @@ let lastStatus = '';
 async function checkSchedule() {
   const res = await fetch('/api/tick', { method: 'POST' }).catch(() => null);
   if (!res?.ok) return;
-  const { scheduled, status, line, mood: felt, totals } = await res.json();
+  const { updated, scheduled, status, line, mood: felt, totals } = await res.json();
+  els.updateChip.hidden = !updated;
   els.statusChip.hidden = !scheduled;
   const label = status
     ? status.asleep ? `Asleep · until ${status.until}` : `${status.where === 'away' ? 'Out' : status.busy ? 'Busy' : 'Now'}: ${status.name} · until ${status.until}`
@@ -563,6 +568,7 @@ function createSpeechQueue(onError) {
   let current = null;
   let generation = 0;
   let chain = Promise.resolve();
+  let enabled = true; // false when the voice is off: the words just appear
 
   function unlock() {
     if (!ctx) {
@@ -581,7 +587,7 @@ function createSpeechQueue(onError) {
   function say(text, hooks = {}) {
     const gen = generation;
     const isCurrent = () => gen === generation;
-    const audible = ctx?.state === 'running';
+    const audible = enabled && ctx?.state === 'running';
     const audio = audible
       ? fetch('/api/tts', {
           method: 'POST',
@@ -637,7 +643,7 @@ function createSpeechQueue(onError) {
     return Math.max(0, Math.min(1, rms * 4 - 0.03));
   }
 
-  return { unlock, say, stop, level };
+  return { unlock, say, stop, level, setEnabled: (on) => (enabled = on) };
 }
 
 // Browser speech recognition (Chrome and Safari). Click to talk; it sends

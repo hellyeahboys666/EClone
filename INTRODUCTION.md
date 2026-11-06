@@ -27,7 +27,7 @@ Who the clone is based on is described only in the private persona notes (see "W
 |---|---|
 | Runs at | http://localhost:4747, on this Mac only. Not online, not in a git repository. |
 | Brain | OpenAI `gpt-5.4` (Claude is also supported; switch with `BRAIN` in `.env`), with `gpt-5.4-mini` as the backup |
-| Voice | The Mac's built-in voice, or an ElevenLabs voice set up from the **Voice** chip on the page. |
+| Voice | Off by default (text only). The **Voice** chip switches to the Mac's built-in voice or an ElevenLabs voice. |
 | Avatar | A sample avatar from the three-vrm project. No custom avatar yet. |
 | Memory | On, stored in `memory/` |
 
@@ -172,7 +172,7 @@ Every write goes to a temporary file first and is then renamed into place, so a 
 | `POST /api/chat` `{ text, cutOff? }` | Answers one message. The reply is a stream of server-sent events: `mood`, `text`, `silent` (it chose not to answer: it wrote `[no reply]` after its mood tag, saved as a `silent` message), `done` (with model and token usage), `error`, and `refusal`. Sending a new message cuts off the reply in progress. `cutOff` says how much of its last line had been shown when you talked over it; only that many words of it are kept (ending in a dash), and your message is marked as talking over it, so the brain knows. |
 | `POST /api/interject` `{ draft }` | Called while you type or talk, when you pause or have added a few words. The backup model (quick) decides, as the clone, whether it would cut you off now. Usually it doesn't. If it would, it returns the line (polite, firm, or yelled in capitals) and a feeling, plus a token. |
 | `POST /api/interject/accept` `{ token }` | The page confirms you hadn't sent your message in the meantime; then your unfinished words (ending in a dash, marked `cutOff`) and the clone's line are saved and its mood set. Turned off with `CLONE_INTERRUPTS=no`. |
-| `POST /api/tts` `{ text }` | One sentence as audio: MP3 from ElevenLabs, or WAV from the Mac's `say`. |
+| `POST /api/tts` `{ text }` | One sentence as audio: MP3 from ElevenLabs, or WAV from the Mac's `say`. 409 when the voice is off. |
 | `GET /api/voice` | The voice in use, whether a key is saved (never the key), the voice and model. |
 | `POST /api/voice/voices` `{ key? }` | The ElevenLabs account's voices (yours first, with previews) and text-to-speech models. Free. |
 | `POST /api/voice/try` `{ key?, voiceId, model, text? }` | One line in that voice, before saving (uses a few credits). |
@@ -190,7 +190,7 @@ Every write goes to a temporary file first and is then renamed into place, so a 
 | `POST /api/house` | Saves the House settings (invalid values are replaced with defaults). `GET /api/config` returns them as `house`. |
 | `POST /api/opener` | Called when the page loads. After a break of 3 hours or more, the clone decides whether to say something first, and returns its line or `null`. |
 | `POST /api/import` | One-time move of a conversation kept in the browser by an older version. |
-| `GET /api/config` | Name, brain, model, voice, avatar address, token totals, and current mood for the page. |
+| `GET /api/config` | Name, brain, model, voice (`none`, `mac` or `elevenlabs`), avatar address, token totals, current mood, and `updated` (its files changed since it started, so it needs a restart; `POST /api/tick` says the same). |
 
 ## Settings (`.env`)
 
@@ -200,7 +200,8 @@ Every write goes to a temporary file first and is then renamed into place, so a 
 | `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_REASONING_EFFORT` | GPT settings (default `gpt-5.4`, effort `low`). Replies also use low verbosity, to keep them short. |
 | `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`, `CLAUDE_EFFORT` | Claude settings (default `claude-sonnet-5-5`, effort `low`). The rules and persona are prompt-cached. |
 | `FALLBACK_MODEL`, `FALLBACK_AFTER_SECONDS` | Backup model (default `gpt-5.4-mini`; a name starting with `claude` uses Claude; `none` turns it off). It answers when the main model fails or hasn't started answering after 20 seconds, and also forms memories and decides about speaking first if the main model fails. The page shows a note when it answered, and the Brain chip's tooltip names it. |
-| `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_VOICE_NAME`, `ELEVENLABS_MODEL` | Cloned voice, filled in by the **Voice** chip. Leave them blank to use the Mac voice. |
+| `VOICE` | `none` (text only), `mac` or `elevenlabs`. Left unset: ElevenLabs if a voice is set up, otherwise none. Set by the **Voice** chip. |
+| `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_VOICE_NAME`, `ELEVENLABS_MODEL` | Cloned voice, filled in by the **Voice** chip. |
 | `ENV_FILE` | Use a different settings file than `.env` (for testing). |
 | `VOICES_FILE` | Where the per-language voices are kept (default `voices.json`). |
 | `SOURCES_DIR`, `PERSONA_BACKUPS_DIR` | Where the build sources and the persona backups are kept (default `sources/`, `persona-backups/`). |

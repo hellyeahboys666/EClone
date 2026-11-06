@@ -123,8 +123,31 @@ export function createVoicePanel({ button, panel, onChange, onOpen }) {
     modelSelect.replaceChildren(...list.map(([id, text]) => new Option(text, id, false, id === keep)));
   }
 
+  // If the page and the server don't match (the files were updated but EClone wasn't
+  // restarted), say so in the panel rather than showing nothing.
   function render() {
-    if (!state) return;
+    try {
+      draw();
+    } catch (err) {
+      console.error('[voice panel]', err);
+      panel.replaceChildren(
+        h('div', { class: 'house-head' }, h('h2', {}, 'Voice'), h('button', { type: 'button', class: 'house-close', onclick: () => toggle(false) }, 'Close')),
+        h('p', { class: 'house-status error' }, 'The voice settings could not be shown. If EClone was just updated, restart it: close its Terminal window (or press Ctrl+C there), then start it again.'),
+      );
+    }
+  }
+
+  function draw() {
+    if (!state) {
+      panel.replaceChildren(
+        h('div', { class: 'house-head' }, h('h2', {}, 'Voice'), h('button', { type: 'button', class: 'house-close', onclick: () => toggle(false) }, 'Close')),
+        h('p', { class: `house-status${message.error ? ' error' : ''}` }, message.text || 'Loading…'),
+      );
+      return;
+    }
+    state.languageList ??= [];
+    state.languages ??= [];
+    state.models ??= [];
     const using = state.using === 'elevenlabs';
     const known = state.models.find(([id]) => id === state.model);
     const modelName = known && known[1] !== state.model ? known[1].split(':')[0] : state.model.replace(/^eleven_/, '').replace(/_/g, ' ');
@@ -136,9 +159,11 @@ export function createVoicePanel({ button, panel, onChange, onOpen }) {
     panel.replaceChildren(
       h('div', { class: 'house-head' }, h('h2', {}, 'Voice'), h('button', { type: 'button', class: 'house-close', onclick: () => toggle(false) }, 'Close')),
       h('div', { class: 'card stack' },
-        h('p', { class: 'voice-now' }, 'Speaking with: ', h('strong', {}, using ? `${state.voiceName || 'an ElevenLabs voice'} (ElevenLabs, ${modelName})` : state.macWorks ? "this Mac's built-in voice" : 'no voice (text only)')),
-        using ? languagesCard() : null,
-        using && state.macWorks ? h('button', { type: 'button', class: 'small', disabled: Boolean(busy), onclick: () => save({ use: 'mac' }) }, 'Use the Mac voice instead') : null),
+        modeSwitch(),
+        h('p', { class: 'voice-now' }, using
+          ? ['Speaking with: ', h('strong', {}, `${state.voiceName || 'an ElevenLabs voice'} (ElevenLabs, ${modelName})`)]
+          : state.using === 'mac' ? ['Speaking with: ', h('strong', {}, "this Mac's built-in voice")] : 'Voice off: replies are text only, and the words appear at a speaking pace.'),
+        using ? languagesCard() : null),
       h('div', { class: 'stack voice-steps' },
         showKey
           ? [
@@ -169,6 +194,23 @@ export function createVoicePanel({ button, panel, onChange, onOpen }) {
     );
     const list = panel.querySelector('.voice-list');
     if (list) list.scrollTop = listScroll;
+  }
+
+  // Off, the Mac voice, or ElevenLabs. ElevenLabs needs a voice set up first (below).
+  function modeSwitch() {
+    const modes = [['none', 'Off'], ...(state.macWorks ? [['mac', 'Mac']] : []), ['elevenlabs', 'ElevenLabs']];
+    const done = { none: 'Voice off: replies are text only.', mac: "Speaking with this Mac's voice.", elevenlabs: `Speaking with ${state.voiceName || 'the ElevenLabs voice'}.` };
+    return h('div', { class: 'voice-modes', role: 'group', 'aria-label': 'Voice' },
+      modes.map(([mode, label]) => {
+        const notReady = mode === 'elevenlabs' && !state.elevenReady && state.using !== 'elevenlabs';
+        return h('button', {
+          type: 'button',
+          'aria-pressed': String(state.using === mode),
+          disabled: Boolean(busy) || notReady,
+          title: notReady ? 'Set up an ElevenLabs voice below first' : '',
+          onclick: () => state.using !== mode && save({ use: mode }, done[mode]),
+        }, label);
+      }));
   }
 
   // Main voice's language, and one more voice for each other language they speak.

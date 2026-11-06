@@ -81,15 +81,23 @@ else if (backup.startsWith('claude') ? env.ANTHROPIC_API_KEY : env.OPENAI_API_KE
 else warn(`Backup model ${backup} needs ${backup.startsWith('claude') ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'} in .env, so there is no backup`);
 if (existsSync(envFile) && !env.OPENAI_API_KEY) warn('No OpenAI key: recall matches words instead of meaning');
 
-if (env.ELEVENLABS_API_KEY && env.ELEVENLABS_VOICE_ID) ok('Voice: ElevenLabs');
-else if (process.platform === 'darwin') {
-  try {
-    execFileSync('which', ['say'], { stdio: 'ignore' });
-    ok("Voice: this Mac's built-in voice");
-  } catch {
-    fail("No voice: the Mac's say command is missing", 'set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID in .env');
+// The same choice the server makes: VOICE, or (left unset) ElevenLabs if it's set up, else none.
+const elevenReady = Boolean(env.ELEVENLABS_API_KEY && env.ELEVENLABS_VOICE_ID);
+const voice = env.VOICE || (elevenReady ? 'elevenlabs' : 'none');
+if (voice === 'elevenlabs') {
+  if (elevenReady) ok('Voice: ElevenLabs');
+  else fail('VOICE=elevenlabs, but no ElevenLabs key or voice is set, so the voice is off', 'set it up from the Voice chip on the page');
+} else if (voice === 'mac') {
+  if (process.platform !== 'darwin') fail("VOICE=mac, but the built-in voice only works on a Mac, so the voice is off", 'choose ElevenLabs or no voice from the Voice chip');
+  else {
+    try {
+      execFileSync('which', ['say'], { stdio: 'ignore' });
+      ok("Voice: this Mac's built-in voice");
+    } catch {
+      fail("VOICE=mac, but the Mac's say command is missing", 'choose ElevenLabs or no voice from the Voice chip');
+    }
   }
-} else fail("No voice: the built-in voice only works on a Mac", 'set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID in .env (npm run setup)');
+} else ok('Voice: off (text only). Turn it on from the Voice chip on the page.');
 
 const personaDir = path.resolve(ROOT, env.PERSONA_DIR || 'persona');
 const notes = existsSync(personaDir) ? readdirSync(personaDir).filter((f) => f.endsWith('.md') && f !== 'README.md') : [];

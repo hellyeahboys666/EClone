@@ -4,6 +4,7 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises';
+import { readdirSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,6 +26,29 @@ import { cleanSchedule, clock, currentActivity, isSleep, nextActivity, occurrenc
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(ROOT, 'public');
+
+// The app's own files as they were when it started. The page is read fresh from disk,
+// but the server keeps running its old code until restarted, so after an update the
+// two can disagree: the page then says to restart.
+function codeStamp() {
+  const parts = [];
+  for (const dir of [ROOT, PUBLIC_DIR, path.join(ROOT, 'scripts')]) {
+    for (const f of readdirSync(dir).sort()) {
+      if (!/\.(m?js|html|css)$/.test(f)) continue;
+      const st = statSync(path.join(dir, f));
+      parts.push(`${f}:${st.size}:${st.mtimeMs}`);
+    }
+  }
+  return parts.join('|');
+}
+const startStamp = codeStamp();
+const codeChanged = () => {
+  try {
+    return codeStamp() !== startStamp;
+  } catch {
+    return false;
+  }
+};
 const AVATAR_DIR = path.join(ROOT, 'avatar');
 const SAMPLE_AVATAR =
   'https://cdn.jsdelivr.net/gh/pixiv/three-vrm@v3.4.1/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm';
@@ -66,6 +90,9 @@ const config = {
   fallbackAfterMs: 1000 * Number(process.env.FALLBACK_AFTER_SECONDS || 20),
   // Whether the clone may cut you off while you're still typing or talking (yes/no).
   interrupts: !/^(no|off|false|0)$/i.test(process.env.CLONE_INTERRUPTS || process.env.TWIN_INTERRUPTS || 'yes'),
+  // none (text only, the default), mac (this Mac's voice) or elevenlabs. Left unset, an
+  // ElevenLabs voice that's set up is used, and otherwise there's no voice.
+  voice: process.env.VOICE || '',
   elevenKey: process.env.ELEVENLABS_API_KEY || '',
   elevenVoice: process.env.ELEVENLABS_VOICE_ID || '',
   elevenVoiceName: process.env.ELEVENLABS_VOICE_NAME || '',
@@ -75,7 +102,14 @@ const config = {
   voicesFile: path.resolve(ROOT, process.env.VOICES_FILE || 'voices.json'),
 };
 // The voice can be changed from the page (the Voice panel) while the clone is running.
-const useElevenLabs = () => Boolean(config.elevenKey && config.elevenVoice);
+const elevenReady = () => Boolean(config.elevenKey && config.elevenVoice);
+function voiceMode() {
+  if (config.voice === 'elevenlabs') return elevenReady() ? 'elevenlabs' : 'none';
+  if (config.voice === 'mac') return process.platform === 'darwin' ? 'mac' : 'none';
+  if (config.voice === 'none') return 'none';
+  return elevenReady() ? 'elevenlabs' : 'none';
+}
+const useElevenLabs = () => voiceMode() === 'elevenlabs';
 const brainLabel = { openai: 'OpenAI', claude: 'Claude', chatgpt: 'ChatGPT (Codex)' }[config.brain];
 const brainModel = { openai: config.openaiModel, claude: config.model, chatgpt: config.codexModel }[config.brain];
 const execFileAsync = promisify(execFile);
@@ -262,6 +296,7 @@ async function handleTick(res) {
     }
   }
   sendJson(res, 200, {
+    updated: codeChanged(),
     scheduled: schedule.activities.length > 0,
     status,
     line,
@@ -1375,7 +1410,8 @@ function voiceState() {
     mainLanguage: voiceLanguages.mainLanguage,
     languages: voiceLanguages.languages,
     languageList: LANGUAGES.map(({ code, name }) => [code, name]),
-    using: useElevenLabs() ? 'elevenlabs' : 'mac',
+    using: voiceMode(),
+    elevenReady: elevenReady(), // a voice is set up, so switching to it is one click
     hasKey: Boolean(config.elevenKey), // the key itself never goes to the page
     voiceId: config.elevenVoice,
     voiceName: config.elevenVoiceName,
@@ -1431,9 +1467,13 @@ async function handleVoiceTry(req, res) {
 async function handleVoiceSave(req, res) {
   const body = await readJson(req);
   if (['addLanguage', 'removeLanguage', 'mainLanguage'].includes(body.action)) return handleVoiceLanguage(body, res);
-  if (body.use === 'mac') {
-    config.elevenVoice = '';
-    updateEnvFile(ENV_FILE, { ELEVENLABS_VOICE_ID: '' }, { fallback: path.join(ROOT, '.env.example') });
+  // Off, the Mac voice, or back to the ElevenLabs voice that's set up. The ElevenLabs
+  // settings stay saved either way, so switching back is one click.
+  if (['none', 'mac', 'elevenlabs'].includes(body.use)) {
+    if (body.use === 'mac' && process.platform !== 'darwin') return sendJson(res, 400, { error: "The built-in voice only works on a Mac." });
+    if (body.use === 'elevenlabs' && !elevenReady()) return sendJson(res, 400, { error: 'Set up an ElevenLabs voice first.' });
+    config.voice = body.use;
+    updateEnvFile(ENV_FILE, { VOICE: body.use }, { fallback: path.join(ROOT, '.env.example') });
     return sendJson(res, 200, voiceState());
   }
   const key = elevenKeyFrom(body);
@@ -1441,8 +1481,8 @@ async function handleVoiceSave(req, res) {
   if (!ELEVEN_ID.test(voice)) return sendJson(res, 400, { error: 'Pick a voice first.' });
   const model = ELEVEN_MODEL.test(body.model ?? '') ? body.model : config.elevenModel;
   const name = String(body.voiceName ?? '').replace(/[\r\n#=]/g, ' ').trim().slice(0, 80);
-  updateEnvFile(ENV_FILE, { ELEVENLABS_API_KEY: key, ELEVENLABS_VOICE_ID: voice, ELEVENLABS_VOICE_NAME: name, ELEVENLABS_MODEL: model }, { fallback: path.join(ROOT, '.env.example') });
-  Object.assign(config, { elevenKey: key, elevenVoice: voice, elevenVoiceName: name, elevenModel: model });
+  updateEnvFile(ENV_FILE, { VOICE: 'elevenlabs', ELEVENLABS_API_KEY: key, ELEVENLABS_VOICE_ID: voice, ELEVENLABS_VOICE_NAME: name, ELEVENLABS_MODEL: model }, { fallback: path.join(ROOT, '.env.example') });
+  Object.assign(config, { voice: 'elevenlabs', elevenKey: key, elevenVoice: voice, elevenVoiceName: name, elevenModel: model });
   sendJson(res, 200, voiceState());
 }
 
@@ -1497,7 +1537,9 @@ async function handleTts(req, res) {
   const clean = String(text ?? '').trim().slice(0, 1500);
   if (!clean) return sendJson(res, 400, { error: 'No text to speak.' });
   try {
-    const { audio, type } = useElevenLabs() ? await elevenLabsSpeech(clean, voiceFor(clean)) : await macSpeech(clean);
+    const mode = voiceMode();
+    if (mode === 'none') return sendJson(res, 409, { error: 'The voice is off.' });
+    const { audio, type } = mode === 'elevenlabs' ? await elevenLabsSpeech(clean, voiceFor(clean)) : await macSpeech(clean);
     res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
     res.end(audio);
   } catch (err) {
@@ -1513,7 +1555,8 @@ async function handleConfig(res) {
     brain: hasBrainKey() ? config.brain : 'demo',
     model: brainModel,
     fallbackModel: backupModel?.name ?? null,
-    voice: useElevenLabs() ? 'elevenlabs' : 'mac',
+    voice: voiceMode(),
+    updated: codeChanged(), // the files changed since it started: it needs a restart
     voiceName: useElevenLabs() ? config.elevenVoiceName || null : null,
     avatarUrl: localAvatar ? `/avatar/${encodeURIComponent(localAvatar)}` : SAMPLE_AVATAR,
     sampleAvatar: !localAvatar,
@@ -1647,5 +1690,5 @@ server.listen(config.port, '127.0.0.1', () => {
     else console.log(`Brain: ChatGPT sign-in isn't ready (${codexStatus.detail}; run: codex login). ${backupModel ? `${backupModel.name} answers meanwhile.` : 'Demo replies until then.'}`);
   } else console.log(`Brain: ${hasBrainKey() ? brainModel : `demo replies (no ${brainLabel} API key)`}`);
   console.log(`Backup: ${backupModel ? `${backupModel.name} (if ${brainModel} fails or is silent for ${config.fallbackAfterMs / 1000} s)` : 'off'}`);
-  console.log(`Voice: ${useElevenLabs() ? `ElevenLabs${config.elevenVoiceName ? ` (${config.elevenVoiceName})` : ''}` : 'Mac say'}`);
+  console.log(`Voice: ${{ elevenlabs: `ElevenLabs${config.elevenVoiceName ? ` (${config.elevenVoiceName})` : ''}`, mac: 'Mac say', none: 'off (text only)' }[voiceMode()]}`);
 });

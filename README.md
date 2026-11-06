@@ -32,7 +32,7 @@ EClone itself is free: no subscription, no account, no paid tier, and the code i
 
 ## What you need
 
-- **A Mac.** Windows or Linux works too, but then the voice needs ElevenLabs (see [Voice](#make-it-look-and-sound-like-them)).
+- **A Mac.** Windows or Linux works too, but then a voice needs ElevenLabs (see [Voice](#make-it-look-and-sound-like-them)); without one, the clone is text only.
 - **Chrome or Safari.** Talking into the mic uses the browser's speech recognition. Typing works anywhere.
 - **A brain**, one of:
   - an **OpenAI API key** (GPT), from https://platform.openai.com/api-keys
@@ -71,7 +71,7 @@ Setup:
 - asks for the clone's name and which brain to use
 - asks you to paste your API key (it's hidden while you type)
 - tests the key
-- asks whether to set up a cloned voice
+- asks which voice to use: none (text only, the default), this Mac's voice, or a cloned ElevenLabs voice
 - starts the persona notes from a template (then you build them from real material on the Mind page)
 
 Everything is saved in `.env`, which only you can read. Run `npm run setup` again any time to change these answers.
@@ -142,7 +142,8 @@ The easy way is to run `npm run setup` again. Or open `.env` in a text editor, c
 | `OPENAI_API_KEY`, `OPENAI_MODEL` | GPT key and model (default `gpt-5.4`; `gpt-5.4-mini` is faster and cheaper). The OpenAI key also powers recall by meaning and the backup model. |
 | `ANTHROPIC_API_KEY`, `CLAUDE_MODEL` | Claude key and model (default `claude-sonnet-5-5`) |
 | `FALLBACK_MODEL`, `FALLBACK_AFTER_SECONDS` | Backup model if the main one fails or is silent (default `gpt-5.4-mini` after 20 seconds; `none` turns it off) |
-| `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | Cloned voice (blank uses the Mac's voice). Easiest to set from the **Voice** chip on the page. |
+| `VOICE` | `none` (text only, the default), `mac` or `elevenlabs`. Easiest to set from the **Voice** chip on the page. |
+| `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | Cloned voice. Easiest to set from the **Voice** chip on the page. |
 | `CLONE_NAME` | Name shown on the page |
 | `PORT` | The address, `http://localhost:PORT` (default 4747) |
 
@@ -235,7 +236,7 @@ The schedule is saved in `schedule.json`, which is private and left out of git a
 
 | Piece | How |
 |---|---|
-| **Voice** | The person records 1–5 minutes of clean speech and creates a voice at https://elevenlabs.io (they should do the consent step themselves). Then click the **Voice** chip at the top of the clone's page: paste your ElevenLabs API key, click **Show my voices** (your clones are listed first, each with a free ▶ preview), pick one, choose speed or quality, click **Try it** to hear a line, and **Save and use it**. It switches right away, no restart, and **Use the Mac voice instead** switches back. **Speaks more than one language?** Set which language the main voice speaks, then pick another voice (for example their Chinese clone), choose **For Chinese**, and **Use for Chinese**. Add one per language. Each sentence is said in the voice for its language (worked out from the sentence itself), and anything else uses the main voice. Write in the persona notes which languages they speak and how they mix them. The key stays on your computer in `.env`. (`npm run setup` can do the same in the terminal, listing your voices to pick by number.) |
+| **Voice** | A new clone has **no voice**: replies are text only, and the words appear at a speaking pace. The **Voice** chip switches between **Off**, **Mac** (this Mac's built-in voice) and **ElevenLabs**. For a voice that sounds like them, the person records 1–5 minutes of clean speech and creates a voice at https://elevenlabs.io (they should do the consent step themselves). Then click the **Voice** chip at the top of the clone's page: paste your ElevenLabs API key, click **Show my voices** (your clones are listed first, each with a free ▶ preview), pick one, choose speed or quality, click **Try it** to hear a line, and **Save and use it**. It switches right away, no restart, and **Use the Mac voice instead** switches back. **Speaks more than one language?** Set which language the main voice speaks, then pick another voice (for example their Chinese clone), choose **For Chinese**, and **Use for Chinese**. Add one per language. Each sentence is said in the voice for its language (worked out from the sentence itself), and anything else uses the main voice. Write in the persona notes which languages they speak and how they mix them. The key stays on your computer in `.env`. (`npm run setup` can do the same in the terminal, listing your voices to pick by number.) |
 | **Avatar** | Put a `.vrm` or `.glb` file in the `avatar/` folder. The first one there (alphabetically) replaces the sample. For a cartoon look, make a `.vrm` in [VRoid Studio](https://vroid.com/en/studio) (free). For a realistic person, use a `.glb` character with a standard humanoid skeleton (Mixamo, Avaturn, Character Creator and Unreal bone names all work) and Apple ARKit face shape keys (like `jawOpen`, `eyeBlinkLeft`, `mouthSmileLeft`) or viseme keys, so it can blink, talk and show moods. A `.glb` without them still stands in the room, and the page says what's missing. |
 | **House** | Click **House**. **Look** sets the time of day (or follows the clock), lamps, colors and floor. It also sets the walls (paint, stripes, dots, floral, brick, wood panels, or *your own picture* as wallpaper) and the view out the window (garden, city, lake, or *your own photo*). **Decorate** moves anything in the room, including the sofa, coffee table, TV, bookshelf, lamps, plants, pictures and rug it starts with (and **Put the original furniture back** if you change your mind). It also adds things from a catalog: armchair, beanbag, desk with a laptop, lamps, plants, cactus, flowers, bookcase, guitar, telescope, round rug, fish tank, speaker, a big flatscreen TV, a teddy bear, a giant toy spider, posters, a wall clock, a shelf, string lights, *your own framed photos* and *your own 3D models* (`.glb`). Drag them anywhere on the floor or walls, then turn, resize, recolor or remove them: the selected thing's controls, with **Remove**, stay pinned at the top of the panel. **Delete** removes the selected thing, **Esc** lets go of it, and **Undo** (or Cmd+Z) puts back the last one you removed. A few seconds after you stop, the clone says whether it likes the change, by its own taste in the persona notes ("pink stripes? Absolutely not. The telescope can stay, though"). It can feel anything a person would: thrilled by a new TV, grossed out, or startled when you drop something right next to it (it reacts within a second or two). If something scares it, like a spider for a clone who's afraid of them, it's scared for real, and you'll have to comfort it; it calms down gradually. Change things while it's out, and it notices when it comes home. How it reacts depends on who it is: the same spider delights a bug lover. There are two views. The usual one faces the clone, and dragging turns you around it (no zooming or sliding, and the camera stops at the walls). **Whole room** (top left) glides up to look down on the entire room, where you can drag to turn and scroll to zoom; the view out the window is hidden from up there. **Back to the clone** glides back down. Settings are saved in `house.json`, and uploads in `house-assets/`. |
 
@@ -256,7 +257,8 @@ This makes `<folder name>-share.zip` next to this folder. It contains only the a
 | Brain chip says "demo mode" | No API key for the chosen brain. Run `npm run setup`. |
 | "rejected the API key" | The key was copied wrong or deleted. Run `npm run setup` and paste it again. |
 | "rate-limiting" or "out of credit" | Add credit on the provider's website, or wait a minute. |
-| No sound | Click anywhere on the page once (browsers block sound until you do). Check the volume. Off a Mac, set up ElevenLabs. |
+| No sound | The voice is off by default: turn it on from the **Voice** chip. Then click anywhere on the page once (browsers block sound until you do), and check the volume. Off a Mac, use ElevenLabs. |
+| "Updated: restart EClone to finish" | EClone's files changed (an update) but it is still running the old version, so some things may not work. Close its Terminal window (or press Ctrl+C there) and start it again. |
 | Mic button missing or blocked | Use Chrome or Safari, and allow the microphone when asked. |
 | Stuck on "Loading avatar" | The 3D library and sample avatar load from the internet, so check the connection, then refresh. |
 | Replies feel slow | Set `OPENAI_MODEL=gpt-5.4-mini` in `.env` and restart. With `BRAIN=chatgpt`, about 5 seconds is normal. |

@@ -169,9 +169,13 @@ else if (!values.OPENAI_API_KEY) warn('Without an OpenAI key there is no backup 
 
 console.log(bold('\n5. Voice'));
 const mac = process.platform === 'darwin';
-if (mac) console.log("  Without ElevenLabs, the clone uses this Mac's built-in voice.");
-else warn("This isn't a Mac, so the built-in voice won't work. Use ElevenLabs, or the clone will only show text.");
-if (await yes('Set up an ElevenLabs cloned voice now?', values.ELEVENLABS_API_KEY ? 'y' : 'n')) {
+console.log('  By default the clone has no voice: replies are text only. You can change this any time from the Voice chip on its page.');
+const current = values.VOICE || (values.ELEVENLABS_API_KEY && values.ELEVENLABS_VOICE_ID ? 'elevenlabs' : 'none');
+const options = [['none', 'No voice (text only)'], ...(mac ? [['mac', "This Mac's built-in voice"]] : []), ['elevenlabs', 'An ElevenLabs voice (a cloned voice)']];
+options.forEach(([, label], i) => console.log(`   ${i + 1}. ${label}`));
+const picked = options[Number(await ask('Which voice? (number)', String(Math.max(1, options.findIndex(([v]) => v === current) + 1)))) - 1] ?? options[0];
+changes.VOICE = picked[0];
+if (picked[0] === 'elevenlabs') {
   console.log('  Make the voice at https://elevenlabs.io under Voices (the person should record and agree to it themselves).');
   console.log('  You can also do all of this later from the Voice chip on the clone\'s page.');
   const eleven = (await askSecret('Paste your ElevenLabs API key (Enter keeps the saved one)')) || values.ELEVENLABS_API_KEY || '';
@@ -187,7 +191,11 @@ if (await yes('Set up an ElevenLabs cloned voice now?', values.ELEVENLABS_API_KE
     changes.ELEVENLABS_VOICE_NAME = voice.name;
     ok(`Voice: ${voice.name}`);
   } else changes.ELEVENLABS_VOICE_ID = await ask('Voice ID (from the voice on elevenlabs.io)', values.ELEVENLABS_VOICE_ID || '');
-}
+  if (!changes.ELEVENLABS_API_KEY || !changes.ELEVENLABS_VOICE_ID) {
+    warn('No ElevenLabs voice set, so the voice stays off for now. Set it up later from the Voice chip.');
+    changes.VOICE = 'none';
+  }
+} else ok(picked[0] === 'mac' ? "Voice: this Mac's built-in voice" : 'Voice: off (text only)');
 
 console.log(bold('\n6. Persona'));
 const personaDir = path.resolve(ROOT, values.PERSONA_DIR || 'persona');
