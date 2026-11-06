@@ -200,7 +200,7 @@ Every write goes to a temporary file first and is then renamed into place, so a 
 | `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_REASONING_EFFORT` | GPT settings (default `gpt-5.4`, effort `low`). Replies also use low verbosity, to keep them short. |
 | `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`, `CLAUDE_EFFORT` | Claude settings (default `claude-sonnet-5-5`, effort `low`). The rules and persona are prompt-cached. |
 | `FALLBACK_MODEL`, `FALLBACK_AFTER_SECONDS` | Backup model (default `gpt-5.4-mini`; a name starting with `claude` uses Claude; `none` turns it off). It answers when the main model fails or hasn't started answering after 20 seconds, and also forms memories and decides about speaking first if the main model fails. The page shows a note when it answered, and the Brain chip's tooltip names it. |
-| `VOICE` | `none` (text only), `mac` or `elevenlabs`. Left unset: ElevenLabs if a voice is set up, otherwise none. Set by the **Voice** chip. |
+| `VOICE` | `none` (text only), `mac` or `elevenlabs`. Left unset: ElevenLabs if a voice is set up; the Mac voice if only an ElevenLabs key is saved (what older versions' "Use the Mac voice instead" left); otherwise none. Set by the **Voice** chip. |
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_VOICE_NAME`, `ELEVENLABS_MODEL` | Cloned voice, filled in by the **Voice** chip. |
 | `ENV_FILE` | Use a different settings file than `.env` (for testing). |
 | `VOICES_FILE` | Where the per-language voices are kept (default `voices.json`). |

@@ -145,6 +145,15 @@ export function createVoicePanel({ button, panel, onChange, onOpen }) {
       );
       return;
     }
+    // A server older than this page (updated files, not restarted yet) can't do what
+    // these buttons ask, and would answer with confusing errors.
+    if (state.elevenReady === undefined) {
+      panel.replaceChildren(
+        h('div', { class: 'house-head' }, h('h2', {}, 'Voice'), h('button', { type: 'button', class: 'house-close', onclick: () => toggle(false) }, 'Close')),
+        h('p', { class: 'house-status error' }, 'EClone was updated but is still running the old version, so the voice can\'t be changed yet. Restart it: close its Terminal window (or press Ctrl+C there), then start it again (double-click Start EClone.command, or run npm start).'),
+      );
+      return;
+    }
     state.languageList ??= [];
     state.languages ??= [];
     state.models ??= [];
@@ -206,9 +215,15 @@ export function createVoicePanel({ button, panel, onChange, onOpen }) {
         return h('button', {
           type: 'button',
           'aria-pressed': String(state.using === mode),
-          disabled: Boolean(busy) || notReady,
-          title: notReady ? 'Set up an ElevenLabs voice below first' : '',
-          onclick: () => state.using !== mode && save({ use: mode }, done[mode]),
+          disabled: Boolean(busy),
+          title: notReady ? 'Pick an ElevenLabs voice first' : '',
+          onclick: () => {
+            if (state.using === mode) return;
+            if (!notReady) return save({ use: mode }, done[mode]);
+            // No ElevenLabs voice yet: show the voices to pick from instead of failing.
+            if (state.hasKey && !voices) listVoices().then(() => say('Pick a voice below, then click Save and use it.'));
+            else say(state.hasKey ? 'Pick a voice below, then click Save and use it.' : 'Paste your ElevenLabs API key below, click Show my voices, pick one, then Save and use it.');
+          },
         }, label);
       }));
   }

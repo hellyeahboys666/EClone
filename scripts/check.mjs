@@ -81,9 +81,10 @@ else if (backup.startsWith('claude') ? env.ANTHROPIC_API_KEY : env.OPENAI_API_KE
 else warn(`Backup model ${backup} needs ${backup.startsWith('claude') ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'} in .env, so there is no backup`);
 if (existsSync(envFile) && !env.OPENAI_API_KEY) warn('No OpenAI key: recall matches words instead of meaning');
 
-// The same choice the server makes: VOICE, or (left unset) ElevenLabs if it's set up, else none.
+// The same choice the server makes: VOICE, or (left unset) ElevenLabs if it's set up, the Mac
+// voice if only a key is saved (an older version's "use the Mac voice"), else none.
 const elevenReady = Boolean(env.ELEVENLABS_API_KEY && env.ELEVENLABS_VOICE_ID);
-const voice = env.VOICE || (elevenReady ? 'elevenlabs' : 'none');
+const voice = env.VOICE || (elevenReady ? 'elevenlabs' : env.ELEVENLABS_API_KEY && process.platform === 'darwin' ? 'mac' : 'none');
 if (voice === 'elevenlabs') {
   if (elevenReady) ok('Voice: ElevenLabs');
   else fail('VOICE=elevenlabs, but no ElevenLabs key or voice is set, so the voice is off', 'set it up from the Voice chip on the page');

@@ -107,7 +107,10 @@ function voiceMode() {
   if (config.voice === 'elevenlabs') return elevenReady() ? 'elevenlabs' : 'none';
   if (config.voice === 'mac') return process.platform === 'darwin' ? 'mac' : 'none';
   if (config.voice === 'none') return 'none';
-  return elevenReady() ? 'elevenlabs' : 'none';
+  if (elevenReady()) return 'elevenlabs';
+  // A key with no voice is what "Use the Mac voice instead" left in older versions:
+  // keep that choice. Otherwise, no voice.
+  return config.elevenKey && process.platform === 'darwin' ? 'mac' : 'none';
 }
 const useElevenLabs = () => voiceMode() === 'elevenlabs';
 const brainLabel = { openai: 'OpenAI', claude: 'Claude', chatgpt: 'ChatGPT (Codex)' }[config.brain];
@@ -1467,9 +1470,14 @@ async function handleVoiceTry(req, res) {
 async function handleVoiceSave(req, res) {
   const body = await readJson(req);
   if (['addLanguage', 'removeLanguage', 'mainLanguage'].includes(body.action)) return handleVoiceLanguage(body, res);
+  // Something this version doesn't know (a newer page, say): never mistake it for
+  // saving a voice, which would only answer "Pick a voice first".
+  const restart = "This EClone doesn't know that setting. If it was just updated, restart it (close its Terminal window or press Ctrl+C there, then start it again).";
+  if (body.action !== undefined) return sendJson(res, 400, { error: restart });
+  if (body.use !== undefined && !['none', 'mac', 'elevenlabs'].includes(body.use)) return sendJson(res, 400, { error: restart });
   // Off, the Mac voice, or back to the ElevenLabs voice that's set up. The ElevenLabs
   // settings stay saved either way, so switching back is one click.
-  if (['none', 'mac', 'elevenlabs'].includes(body.use)) {
+  if (body.use !== undefined) {
     if (body.use === 'mac' && process.platform !== 'darwin') return sendJson(res, 400, { error: "The built-in voice only works on a Mac." });
     if (body.use === 'elevenlabs' && !elevenReady()) return sendJson(res, 400, { error: 'Set up an ElevenLabs voice first.' });
     config.voice = body.use;

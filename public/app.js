@@ -68,7 +68,7 @@ async function init() {
     ? `Backup model: ${config.fallbackModel}. It answers if ${config.model} fails or doesn't start answering in time.`
     : 'No backup model.';
   setVoiceChip(config.voice, config.voiceName);
-  els.updateChip.hidden = !config.updated;
+  els.updateChip.hidden = config.updated === false; // missing: a server too old to say, so it needs a restart too
   showUsage(null, config.usage);
   if (config.mood) mood = config.mood;
   showMood();
@@ -177,7 +177,7 @@ async function checkSchedule() {
   const res = await fetch('/api/tick', { method: 'POST' }).catch(() => null);
   if (!res?.ok) return;
   const { updated, scheduled, status, line, mood: felt, totals } = await res.json();
-  els.updateChip.hidden = !updated;
+  els.updateChip.hidden = updated === false;
   els.statusChip.hidden = !scheduled;
   const label = status
     ? status.asleep ? `Asleep · until ${status.until}` : `${status.where === 'away' ? 'Out' : status.busy ? 'Busy' : 'Now'}: ${status.name} · until ${status.until}`
