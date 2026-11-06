@@ -387,7 +387,7 @@ export function createHousePanel({ button, panel, initial, stage, onChange, onSe
 
   button.addEventListener('click', () => toggle());
   render();
-  return { settings: () => settings };
+  return { settings: () => settings, close: () => !panel.hidden && toggle(false) };
 }
 
 function capitalize(text) {

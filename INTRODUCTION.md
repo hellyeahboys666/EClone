@@ -26,7 +26,7 @@ Who the twin is based on is described only in the private persona notes (see "Wo
 |---|---|
 | Runs at | http://localhost:4747, on this Mac only. Not online, not in a git repository. |
 | Brain | OpenAI `gpt-5.4` (Claude is also supported; switch with `BRAIN` in `.env`), with `gpt-5.4-mini` as the backup |
-| Voice | The Mac's built-in voice. ElevenLabs is supported but not set up. |
+| Voice | The Mac's built-in voice, or an ElevenLabs voice set up from the **Voice** chip on the page. |
 | Avatar | A sample avatar from the three-vrm project. No custom avatar yet. |
 | Memory | On, stored in `memory/` |
 
@@ -58,7 +58,7 @@ you ──text/speech──▶ browser (public/) ──▶ server.js ──▶ G
 | Path | What it does |
 |---|---|
 | `server.js` | Small Node web server, no framework. Serves the page, builds the instructions, streams replies from GPT or Claude, makes speech, and handles New chat and settings. Listens on 127.0.0.1 only, and refuses requests whose Host or Origin isn't this computer, so other websites can't read memories or send changes through your browser (including DNS rebinding). |
-| `scripts/setup.mjs` | `npm run setup`: a first-time wizard (no packages needed).<br>• Checks Node and installs the packages.<br>• Asks for the name, brain and key (hidden while typing), and tests the key with a free request.<br>• Optionally sets up ElevenLabs.<br>• Starts `persona/` from `persona-template/`.<br>• Writes `.env` with permissions 600, keeping its comments.<br>Answers can be piped in for automation. |
+| `scripts/setup.mjs` | `npm run setup`: a first-time wizard (no packages needed).<br>• Checks Node and installs the packages.<br>• Asks for the name, brain and key (hidden while typing), and tests the key with a free request.<br>• Optionally sets up ElevenLabs, listing the account's voices to pick by number.<br>• Starts `persona/` from `persona-template/`.<br>• Writes `.env` with permissions 600, keeping its comments.<br>Answers can be piped in for automation. |
 | `scripts/check.mjs` | `npm run check`: checks Node, packages, `.env`, the key (a free request; `-- --offline` skips it), backup model, voice, persona (including unfilled "(replace this)" lines), avatar, memory and whether the twin is running. It prints counts only, and gives a fix for each problem. |
 | `scripts/share.mjs` | `npm run share`: zips the app next to the folder without `.env`, `persona/`, `persona-backups/`, `memory/`, `reference/`, avatars, `house.json`, `node_modules` or `.claude`. |
 | `Start EClone.command` | Double-click launcher for Mac. It installs if needed, runs setup the first time, starts the twin and opens the browser, or just opens the browser if the twin is already running. |
@@ -85,6 +85,8 @@ The prompt goes in on stdin. The reply comes back in one piece through its JSON 
 | `surroundings.js` | Puts the house into words for the twin: what's around it, the view and light outside, and whether the lamps are on. It also lists what changed since the twin last spoke (compared with `memory/house-seen.json`) so the twin notices, for example "Okay but did the walls change? I just noticed they're sage green now." New things are described by size and closeness ("a huge toy spider appeared right next to you, about 0.6 m away"), since that's what makes a person jump. |
 | `public/decor.js` | Everything you can move, built from simple shapes: the room's starting furniture (sofa, coffee table, side table with a lamp, floor lamp, TV console, bookshelf, plants, prints, rug) and the Decorate catalog. Houses saved before the furniture was movable are converted by `cleanHouse` in `house-config.js` (`startingFurniture`), so they look the same. Your own framed pictures and `.glb` models load from `house-assets/`; models are resized so their biggest side is 1 m and set on the floor. |
 | `public/house-config.js` | The House settings: each option, the defaults, and the cleaner that keeps only valid values (used by both the page and the server). |
+| `public/voice-panel.js` | The Voice panel (the **Voice** chip): paste the ElevenLabs key, list the account's voices and models, preview, try and save. The key goes to the server only, never back to the page. |
+| `env-file.js` | Reads and updates `.env` in place, keeping its comments (used by the setup wizard and the Voice panel). |
 | `public/house-panel.js` | The House panel (the **House** button at the top). Changes show right away and are saved to `house.json`. |
 | `house.json` | Saved House settings. Not private. |
 | `public/scene.js` | The three.js stage (two camera views: facing the twin, where you can only turn around it and the camera stops at the walls, and **Whole room** from above, where you can turn and zoom, with a smooth glide between them and the outside hidden from above; tone mapping; reflections), loading the VRM avatar, idle motion, blinking, mood expressions, body language (eyes that glance away now and then, a look up and aside while thinking, nods while listening, a droop when low), and the mouth driven by audio loudness. |
@@ -165,6 +167,10 @@ Every write goes to a temporary file first and is then renamed into place, so a 
 | `POST /api/interject` `{ draft }` | Called while you type or talk, when you pause or have added a few words. The backup model (quick) decides, as the twin, whether it would cut you off now. Usually it doesn't. If it would, it returns the line (polite, firm, or yelled in capitals) and a feeling, plus a token. |
 | `POST /api/interject/accept` `{ token }` | The page confirms you hadn't sent your message in the meantime; then your unfinished words (ending in a dash, marked `cutOff`) and the twin's line are saved and its mood set. Turned off with `TWIN_INTERRUPTS=no`. |
 | `POST /api/tts` `{ text }` | One sentence as audio: MP3 from ElevenLabs, or WAV from the Mac's `say`. |
+| `GET /api/voice` | The voice in use, whether a key is saved (never the key), the voice and model. |
+| `POST /api/voice/voices` `{ key? }` | The ElevenLabs account's voices (yours first, with previews) and text-to-speech models. Free. |
+| `POST /api/voice/try` `{ key?, voiceId, model, text? }` | One line in that voice, before saving (uses a few credits). |
+| `POST /api/voice` `{ key?, voiceId, voiceName, model }` or `{ use: 'mac' }` | Saves the voice to `.env` and uses it right away, or switches back to the Mac voice. |
 | `GET /api/conversation` | The current conversation, used to redraw the chat after a refresh. |
 | `POST /api/new-chat` | Forms memories from this conversation, then starts a fresh one. |
 | `GET /api/mind`, `POST /api/mind` `{ action, ... }` | The Mind page. `GET` returns the persona notes, rules, memories, mood and chat length. `POST` actions are `savePersona`, `deletePersona`, `saveRules`, `addMemory`, `updateMemory`, `deleteMemory`, `forgetAll`, `resetMood` and `clearConversation`. Note names must be simple `.md` names, so they can't reach outside `persona/`. |
@@ -185,7 +191,8 @@ Every write goes to a temporary file first and is then renamed into place, so a 
 | `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_REASONING_EFFORT` | GPT settings (default `gpt-5.4`, effort `low`). Replies also use low verbosity, to keep them short. |
 | `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`, `CLAUDE_EFFORT` | Claude settings (default `claude-opus-5-5`, effort `low`). The rules and persona are prompt-cached. |
 | `FALLBACK_MODEL`, `FALLBACK_AFTER_SECONDS` | Backup model (default `gpt-5.4-mini`; a name starting with `claude` uses Claude; `none` turns it off). It answers when the main model fails or hasn't started answering after 20 seconds, and also forms memories and decides about speaking first if the main model fails. The page shows a note when it answered, and the Brain chip's tooltip names it. |
-| `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_MODEL` | Cloned voice. Leave these blank to use the Mac voice. |
+| `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_VOICE_NAME`, `ELEVENLABS_MODEL` | Cloned voice, filled in by the **Voice** chip. Leave them blank to use the Mac voice. |
+| `ENV_FILE` | Use a different settings file than `.env` (for testing). |
 | `MAC_VOICE` | A voice name from `say -v '?'` |
 | `TWIN_NAME` | The name shown on the page |
 | `HOUSE_FILE` | Where the House settings are saved (default `house.json`) |

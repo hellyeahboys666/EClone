@@ -2,6 +2,7 @@
 // server, and a speech queue that plays each sentence as soon as it's ready.
 import { createStage } from './scene.js';
 import { createHousePanel } from './house-panel.js';
+import { createVoicePanel } from './voice-panel.js';
 
 const els = {
   canvas: document.getElementById('scene'),
@@ -16,6 +17,7 @@ const els = {
   viewRoom: document.getElementById('view-room'),
   viewTwin: document.getElementById('view-twin'),
   housePanel: document.getElementById('house-panel'),
+  voicePanel: document.getElementById('voice-panel'),
   loading: document.getElementById('loading'),
   log: document.getElementById('log'),
   form: document.getElementById('composer'),
@@ -50,6 +52,10 @@ let activity = 'idle';
 
 init();
 
+function setVoiceChip(using, name) {
+  els.voiceChip.textContent = using === 'elevenlabs' ? `Voice: ${name || 'ElevenLabs'}` : 'Voice: Mac built-in';
+}
+
 async function init() {
   const config = await (await fetch('/api/config')).json();
   els.name.textContent = config.name;
@@ -58,7 +64,7 @@ async function init() {
   els.brainChip.title = config.fallbackModel
     ? `Backup model: ${config.fallbackModel}. It answers if ${config.model} fails or doesn't start answering in time.`
     : 'No backup model.';
-  els.voiceChip.textContent = config.voice === 'elevenlabs' ? 'Voice: ElevenLabs clone' : 'Voice: Mac built-in';
+  setVoiceChip(config.voice, config.voiceName);
   showUsage(null, config.usage);
   if (config.mood) mood = config.mood;
   showMood();
@@ -88,7 +94,10 @@ async function init() {
     els.viewTwin.hidden = event.detail.mode !== 'room';
   });
 
-  createHousePanel({ button: els.houseButton, panel: els.housePanel, initial: config.house, stage, onChange: stage.setHouse, onSettled: reactToHouse });
+  const house = createHousePanel({ button: els.houseButton, panel: els.housePanel, initial: config.house, stage, onChange: stage.setHouse, onSettled: reactToHouse });
+  // The Voice and House panels share a spot, so opening one closes the other.
+  const voice = createVoicePanel({ button: els.voiceChip, panel: els.voicePanel, onOpen: house.close, onChange: (v) => setVoiceChip(v.using, v.voiceName) });
+  els.houseButton.addEventListener('click', () => !els.housePanel.hidden && voice.close());
   setPresent = stage.setPresent;
   stage.loaded
     .then((avatar) => {

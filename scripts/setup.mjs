@@ -3,10 +3,11 @@
 // Asks a few questions, tests the API key, and writes .env. Safe to run again to
 // change settings; anything you don't change stays as it is. Needs no packages.
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
+import { readEnvFile, updateEnvFile } from '../env-file.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ENV = path.join(ROOT, '.env');
@@ -60,24 +61,8 @@ function readPipedLines() {
 }
 
 // ---- .env reading and writing (keeps the comments in .env.example) -------------
-function readEnv() {
-  const text = existsSync(ENV) ? readFileSync(ENV, 'utf8') : readFileSync(path.join(ROOT, '.env.example'), 'utf8');
-  const values = {};
-  for (const line of text.split('\n')) {
-    const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
-    if (m) values[m[1]] = m[2].trim();
-  }
-  return { text, values };
-}
-function writeEnv(text, changes) {
-  let out = text;
-  for (const [key, value] of Object.entries(changes)) {
-    const line = `${key}=${value}`;
-    out = new RegExp(`^${key}=.*$`, 'm').test(out) ? out.replace(new RegExp(`^${key}=.*$`, 'm'), line) : `${out.trimEnd()}\n${line}\n`;
-  }
-  writeFileSync(ENV, out);
-  chmodSync(ENV, 0o600); // only you can read it
-}
+const readEnv = () => readEnvFile(ENV, path.join(ROOT, '.env.example'));
+const writeEnv = (text, changes) => updateEnvFile(ENV, changes, { text });
 
 // ---- Checking keys (a free request that lists models) ---------------------------
 async function testKey(provider, key) {
@@ -91,6 +76,20 @@ async function testKey(provider, key) {
     return { ok: false, why: `the service answered ${res.status}.` };
   } catch (err) {
     return { ok: false, why: `couldn't reach the service (${err.message}). Check the internet connection.` };
+  }
+}
+
+// The voices on an ElevenLabs account, yours first.
+async function elevenVoices(key) {
+  try {
+    const res = await fetch('https://api.elevenlabs.io/v1/voices', { headers: { 'xi-api-key': key }, signal: AbortSignal.timeout(15000) });
+    if (res.status === 401) return { voices: [], why: 'the key was rejected (check you copied all of it, and that it may read voices).' };
+    if (!res.ok) return { voices: [], why: `ElevenLabs answered ${res.status}.` };
+    const mine = (v) => ['cloned', 'professional', 'generated'].includes(v.category);
+    const voices = ((await res.json()).voices ?? []).map((v) => ({ id: v.voice_id, name: v.name, mine: mine(v) }));
+    return { voices: voices.sort((a, b) => Number(!a.mine) - Number(!b.mine) || a.name.localeCompare(b.name)) };
+  } catch (err) {
+    return { voices: [], why: `couldn't reach ElevenLabs (${err.message}).` };
   }
 }
 
@@ -173,10 +172,21 @@ const mac = process.platform === 'darwin';
 if (mac) console.log("  Without ElevenLabs, the twin uses this Mac's built-in voice.");
 else warn("This isn't a Mac, so the built-in voice won't work. Use ElevenLabs, or the twin will only show text.");
 if (await yes('Set up an ElevenLabs cloned voice now?', values.ELEVENLABS_API_KEY ? 'y' : 'n')) {
-  console.log('  Create the voice at https://elevenlabs.io (the person should record and consent themselves), then copy its voice ID.');
+  console.log('  Make the voice at https://elevenlabs.io under Voices (the person should record and agree to it themselves).');
+  console.log('  You can also do all of this later from the Voice chip on the twin\'s page.');
   const eleven = (await askSecret('Paste your ElevenLabs API key (Enter keeps the saved one)')) || values.ELEVENLABS_API_KEY || '';
   changes.ELEVENLABS_API_KEY = eleven;
-  changes.ELEVENLABS_VOICE_ID = await ask('Voice ID', values.ELEVENLABS_VOICE_ID || '');
+  const voices = eleven ? await elevenVoices(eleven) : { voices: [] };
+  if (voices.why) warn(`Couldn't list your voices: ${voices.why}`);
+  if (voices.voices.length) {
+    voices.voices.forEach((v, i) => console.log(`   ${String(i + 1).padStart(2)}. ${v.name}${v.mine ? '  (yours)' : ''}`));
+    const saved = voices.voices.findIndex((v) => v.id === values.ELEVENLABS_VOICE_ID);
+    const pick = Number(await ask('Which voice? (number)', saved >= 0 ? String(saved + 1) : '1'));
+    const voice = voices.voices[pick - 1] ?? voices.voices[0];
+    changes.ELEVENLABS_VOICE_ID = voice.id;
+    changes.ELEVENLABS_VOICE_NAME = voice.name;
+    ok(`Voice: ${voice.name}`);
+  } else changes.ELEVENLABS_VOICE_ID = await ask('Voice ID (from the voice on elevenlabs.io)', values.ELEVENLABS_VOICE_ID || '');
 }
 
 console.log(bold('\n6. Persona'));

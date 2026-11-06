@@ -11,6 +11,7 @@ import { promisify } from 'node:util';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { createMemory, formatTime, loadJson, saveJson } from './memory.js';
+import { updateEnvFile } from './env-file.js';
 import { createCodex } from './codex.js';
 import { FEELINGS, createMood, createTagReader, moodTag, splitMoodTag } from './mood.js';
 import { cleanHouse } from './public/house-config.js';
@@ -23,8 +24,10 @@ const AVATAR_DIR = path.join(ROOT, 'avatar');
 const SAMPLE_AVATAR =
   'https://cdn.jsdelivr.net/gh/pixiv/three-vrm@v3.4.1/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm';
 
+// Settings and keys. ENV_FILE points somewhere else (for testing with another setup).
+const ENV_FILE = path.resolve(ROOT, process.env.ENV_FILE || '.env');
 try {
-  process.loadEnvFile(path.join(ROOT, '.env'));
+  process.loadEnvFile(ENV_FILE);
 } catch {
   // No .env yet: run with demo replies and the Mac voice.
 }
@@ -57,10 +60,12 @@ const config = {
   interrupts: !/^(no|off|false|0)$/i.test(process.env.TWIN_INTERRUPTS || 'yes'),
   elevenKey: process.env.ELEVENLABS_API_KEY || '',
   elevenVoice: process.env.ELEVENLABS_VOICE_ID || '',
+  elevenVoiceName: process.env.ELEVENLABS_VOICE_NAME || '',
   elevenModel: process.env.ELEVENLABS_MODEL || 'eleven_flash_v2_5',
   macVoice: process.env.MAC_VOICE || '',
 };
-const useElevenLabs = Boolean(config.elevenKey && config.elevenVoice);
+// The voice can be changed from the page (the Voice panel) while the twin is running.
+const useElevenLabs = () => Boolean(config.elevenKey && config.elevenVoice);
 const brainLabel = { openai: 'OpenAI', claude: 'Claude', chatgpt: 'ChatGPT (Codex)' }[config.brain];
 const brainModel = { openai: config.openaiModel, claude: config.model, chatgpt: config.codexModel }[config.brain];
 const execFileAsync = promisify(execFile);
@@ -968,17 +973,136 @@ async function handleImport(req, res) {
   sendJson(res, 200, { messages: await memory.importConversation(messages) });
 }
 
-async function elevenLabsSpeech(text) {
-  const url =
-    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(config.elevenVoice)}` +
-    '?output_format=mp3_44100_128';
+// ---- ElevenLabs ------------------------------------------------------------------
+// The models people pick from in the Voice panel, until the account's own list (from
+// ElevenLabs) comes in. A saved model that isn't here is kept and shown too.
+const ELEVEN_MODELS = [
+  ['eleven_flash_v2_5', 'Flash v2.5: fastest and cheapest'],
+  ['eleven_turbo_v2_5', 'Turbo v2.5: fast, a bit richer'],
+  ['eleven_multilingual_v2', 'Multilingual v2: most natural, slower'],
+  ['eleven_v3', 'v3: most expressive, slowest'],
+];
+const ELEVEN_ID = /^[\w-]{1,200}$/; // keys, voice and model IDs: letters, digits, _ and -
+const ELEVEN_MODEL = /^eleven_[\w-]{1,80}$/;
+
+async function elevenLabsSpeech(text, { key = config.elevenKey, voice = config.elevenVoice, model = config.elevenModel } = {}) {
+  const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}?output_format=mp3_44100_128`;
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'xi-api-key': config.elevenKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, model_id: config.elevenModel }),
+    headers: { 'xi-api-key': key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, model_id: model }),
+    signal: AbortSignal.timeout(30_000),
   });
-  if (!response.ok) throw new Error(`ElevenLabs ${response.status}: ${(await response.text()).slice(0, 300)}`);
+  if (!response.ok) throw elevenError(response.status, await response.text());
   return { audio: Buffer.from(await response.arrayBuffer()), type: 'audio/mpeg' };
+}
+
+// What went wrong, in words someone can act on.
+function elevenError(status, body = '') {
+  let detail = '';
+  try {
+    const parsed = JSON.parse(body).detail;
+    detail = typeof parsed === 'string' ? parsed : parsed?.message ?? '';
+  } catch {
+    detail = body.slice(0, 200);
+  }
+  const why = {
+    401: "ElevenLabs didn't accept the key. Check you copied all of it, and that it's allowed to read voices and use text to speech.",
+    402: 'The ElevenLabs account is out of credits, or this voice or model needs a paid plan.',
+    404: "ElevenLabs couldn't find that voice. Pick one from the list again.",
+    429: 'ElevenLabs says too many requests or out of credits. Wait a minute, or check the account.',
+  }[status];
+  const err = new Error(why ?? `ElevenLabs answered ${status}${detail ? `: ${detail}` : ''}`);
+  err.status = status === 401 ? 400 : 502;
+  return err;
+}
+
+// The key to use: the one just pasted in the panel, or the saved one.
+function elevenKeyFrom(body) {
+  const key = String(body.key ?? '').trim() || config.elevenKey;
+  if (!key) throw Object.assign(new Error('Paste your ElevenLabs API key first.'), { status: 400 });
+  if (!ELEVEN_ID.test(key)) throw Object.assign(new Error("That doesn't look like an ElevenLabs API key."), { status: 400 });
+  return key;
+}
+
+function voiceState() {
+  return {
+    using: useElevenLabs() ? 'elevenlabs' : 'mac',
+    hasKey: Boolean(config.elevenKey), // the key itself never goes to the page
+    voiceId: config.elevenVoice,
+    voiceName: config.elevenVoiceName,
+    model: config.elevenModel,
+    models: ELEVEN_MODELS.some(([id]) => id === config.elevenModel) ? ELEVEN_MODELS : [[config.elevenModel, config.elevenModel], ...ELEVEN_MODELS],
+    macWorks: process.platform === 'darwin',
+  };
+}
+
+// The voices on the account (yours first, then ElevenLabs' own), with free previews.
+async function handleVoiceList(req, res) {
+  const key = elevenKeyFrom(await readJson(req));
+  const get = (what) => fetch(`https://api.elevenlabs.io/v1/${what}`, { headers: { 'xi-api-key': key }, signal: AbortSignal.timeout(15_000) });
+  const [response, modelResponse] = await Promise.all([get('voices'), get('models').catch(() => null)]);
+  if (!response.ok) throw elevenError(response.status, await response.text());
+  const { voices = [] } = await response.json();
+  // The text-to-speech models this account can use (a key without that permission
+  // just keeps the built-in list).
+  const known = Object.fromEntries(ELEVEN_MODELS);
+  const models = modelResponse?.ok
+    ? (await modelResponse.json()).filter((m) => m.can_do_text_to_speech && ELEVEN_MODEL.test(m.model_id)).map((m) => [m.model_id, known[m.model_id] ?? m.name ?? m.model_id])
+    : [];
+  const yours = (v) => (['cloned', 'professional', 'generated'].includes(v.category) ? 0 : 1);
+  const list = voices
+    .map((v) => ({
+      id: v.voice_id,
+      name: v.name,
+      mine: yours(v) === 0,
+      kind: { cloned: 'your clone', professional: 'your clone (pro)', generated: 'made by you', premade: 'ElevenLabs' }[v.category] ?? v.category ?? '',
+      about: [v.labels?.gender, v.labels?.age, v.labels?.accent].filter(Boolean).join(', '),
+      preview: /^https:\/\//.test(v.preview_url ?? '') ? v.preview_url : null,
+    }))
+    .sort((a, b) => Number(!a.mine) - Number(!b.mine) || a.name.localeCompare(b.name));
+  sendJson(res, 200, { voices: list, models });
+}
+
+// One line in the chosen voice, before saving (uses a few ElevenLabs credits).
+async function handleVoiceTry(req, res) {
+  const body = await readJson(req);
+  const key = elevenKeyFrom(body);
+  const voice = String(body.voiceId ?? '');
+  const model = ELEVEN_MODEL.test(body.model ?? '') ? body.model : config.elevenModel;
+  if (!ELEVEN_ID.test(voice)) return sendJson(res, 400, { error: 'Pick a voice first.' });
+  const text = String(body.text ?? '').trim().slice(0, 200) || `Hey, it's ${config.name}. Does this sound like me?`;
+  const { audio, type } = await elevenLabsSpeech(text, { key, voice, model });
+  res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
+  res.end(audio);
+}
+
+// Save the voice to .env and start using it right away. { use: 'mac' } switches
+// back to the Mac voice (the key stays saved, so switching back is one click).
+async function handleVoiceSave(req, res) {
+  const body = await readJson(req);
+  if (body.use === 'mac') {
+    config.elevenVoice = '';
+    updateEnvFile(ENV_FILE, { ELEVENLABS_VOICE_ID: '' }, { fallback: path.join(ROOT, '.env.example') });
+    return sendJson(res, 200, voiceState());
+  }
+  const key = elevenKeyFrom(body);
+  const voice = String(body.voiceId ?? '');
+  if (!ELEVEN_ID.test(voice)) return sendJson(res, 400, { error: 'Pick a voice first.' });
+  const model = ELEVEN_MODEL.test(body.model ?? '') ? body.model : config.elevenModel;
+  const name = String(body.voiceName ?? '').replace(/[\r\n#=]/g, ' ').trim().slice(0, 80);
+  updateEnvFile(ENV_FILE, { ELEVENLABS_API_KEY: key, ELEVENLABS_VOICE_ID: voice, ELEVENLABS_VOICE_NAME: name, ELEVENLABS_MODEL: model }, { fallback: path.join(ROOT, '.env.example') });
+  Object.assign(config, { elevenKey: key, elevenVoice: voice, elevenVoiceName: name, elevenModel: model });
+  sendJson(res, 200, voiceState());
+}
+
+async function handleVoiceRoute(req, res, handler) {
+  try {
+    await handler(req, res);
+  } catch (err) {
+    if (err.name === 'TimeoutError') return sendJson(res, 504, { error: "ElevenLabs didn't answer in time. Check the internet connection." });
+    sendJson(res, err.status ?? 500, { error: err.message });
+  }
 }
 
 // The text goes through a file, never the command line, so it can't be read as options.
@@ -1000,7 +1124,7 @@ async function handleTts(req, res) {
   const clean = String(text ?? '').trim().slice(0, 1500);
   if (!clean) return sendJson(res, 400, { error: 'No text to speak.' });
   try {
-    const { audio, type } = useElevenLabs ? await elevenLabsSpeech(clean) : await macSpeech(clean);
+    const { audio, type } = useElevenLabs() ? await elevenLabsSpeech(clean) : await macSpeech(clean);
     res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
     res.end(audio);
   } catch (err) {
@@ -1016,7 +1140,8 @@ async function handleConfig(res) {
     brain: hasBrainKey() ? config.brain : 'demo',
     model: brainModel,
     fallbackModel: backupModel?.name ?? null,
-    voice: useElevenLabs ? 'elevenlabs' : 'mac',
+    voice: useElevenLabs() ? 'elevenlabs' : 'mac',
+    voiceName: useElevenLabs() ? config.elevenVoiceName || null : null,
     avatarUrl: localAvatar ? `/avatar/${encodeURIComponent(localAvatar)}` : SAMPLE_AVATAR,
     sampleAvatar: !localAvatar,
     usage: memory.usageSummary(),
@@ -1104,6 +1229,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/mind') return await handleMindChange(req, res);
     if (req.method === 'POST' && pathname === '/api/import') return await handleImport(req, res);
     if (req.method === 'GET' && pathname === '/api/config') return await handleConfig(res);
+    if (req.method === 'GET' && pathname === '/api/voice') return sendJson(res, 200, voiceState());
+    if (req.method === 'POST' && pathname === '/api/voice/voices') return await handleVoiceRoute(req, res, handleVoiceList);
+    if (req.method === 'POST' && pathname === '/api/voice/try') return await handleVoiceRoute(req, res, handleVoiceTry);
+    if (req.method === 'POST' && pathname === '/api/voice') return await handleVoiceRoute(req, res, handleVoiceSave);
     if (req.method === 'GET' && pathname.startsWith('/avatar/')) {
       return await serveFile(res, AVATAR_DIR, pathname.slice('/avatar'.length));
     }
@@ -1143,5 +1272,5 @@ server.listen(config.port, '127.0.0.1', () => {
     else console.log(`Brain: ChatGPT sign-in isn't ready (${codexStatus.detail}; run: codex login). ${backupModel ? `${backupModel.name} answers meanwhile.` : 'Demo replies until then.'}`);
   } else console.log(`Brain: ${hasBrainKey() ? brainModel : `demo replies (no ${brainLabel} API key)`}`);
   console.log(`Backup: ${backupModel ? `${backupModel.name} (if ${brainModel} fails or is silent for ${config.fallbackAfterMs / 1000} s)` : 'off'}`);
-  console.log(`Voice: ${useElevenLabs ? 'ElevenLabs' : 'Mac say'}`);
+  console.log(`Voice: ${useElevenLabs() ? `ElevenLabs${config.elevenVoiceName ? ` (${config.elevenVoiceName})` : ''}` : 'Mac say'}`);
 });

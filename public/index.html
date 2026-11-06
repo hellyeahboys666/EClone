@@ -22,7 +22,7 @@
     <div class="name" id="twin-name">EClone</div>
     <div class="chips">
       <span class="chip" id="brain-chip">Brain</span>
-      <span class="chip" id="voice-chip">Voice</span>
+      <button type="button" class="chip chip-button" id="voice-chip" aria-controls="voice-panel" aria-expanded="false" title="Set up the voice">Voice</button>
       <span class="chip chip-info" id="status-chip" hidden></span>
       <span class="chip chip-info" id="mood-chip">Mood</span>
       <span class="chip chip-info" id="token-chip">Tokens</span>
@@ -38,6 +38,7 @@
   </div>
 
   <aside class="house-panel" id="house-panel" aria-label="House settings" hidden></aside>
+  <aside class="house-panel voice-panel" id="voice-panel" aria-label="Voice settings" hidden></aside>
 
   <div class="loading" id="loading">Loading avatar…</div>
 

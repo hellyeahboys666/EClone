@@ -266,3 +266,45 @@ a.chip { text-decoration: none; }
 }
 .house-panel .editor-head { display: flex; align-items: center; gap: 6px; }
 .house-panel .editor-head > :first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Voice panel */
+.voice-panel input[type="password"],
+.voice-panel input[type="search"] {
+  font: inherit;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.voice-panel select { max-width: 100%; }
+.voice-panel a { color: var(--accent); }
+.voice-now, .voice-chosen { margin: 0; }
+.voice-step { font-weight: 600; margin-top: 6px; }
+.voice-list { list-style: none; margin: 0; padding: 0; max-height: 176px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.voice-list li { display: flex; gap: 6px; align-items: stretch; }
+.voice-panel .voice-pick { flex: 1; display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 1px; }
+.voice-panel .voice-pick[aria-pressed="true"] { border-color: var(--accent); background: rgba(120, 190, 255, 0.16); }
+.voice-name { font-weight: 600; }
+.voice-about { font-size: 11px; color: var(--muted); }
+.voice-actions { display: flex; gap: 8px; }
+.voice-panel button.primary { background: var(--accent); color: #0b1520; border-color: transparent; font-weight: 600; }
+.voice-panel button:disabled { opacity: 0.55; cursor: default; }
+.house-status.error { color: var(--danger); }
+.voice-key-saved { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.voice-key-saved .voice-step { margin-top: 0; }
+.voice-footer {
+  position: sticky;
+  bottom: -12px;
+  margin: 10px -14px -12px;
+  padding: 10px 14px 12px;
+  background: rgba(16, 19, 24, 0.94);
+  border-top: 1px solid var(--glass-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.voice-footer .house-status { margin: 0; }
+.voice-footer .house-status:empty { display: none; }
