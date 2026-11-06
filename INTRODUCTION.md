@@ -189,7 +189,7 @@ Every write goes to a temporary file first and is then renamed into place, so a 
 |---|---|
 | `BRAIN` | `openai`, `claude` or `chatgpt` (ChatGPT plan through Codex; see `codex.js`) |
 | `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_REASONING_EFFORT` | GPT settings (default `gpt-5.4`, effort `low`). Replies also use low verbosity, to keep them short. |
-| `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`, `CLAUDE_EFFORT` | Claude settings (default `claude-opus-5-5`, effort `low`). The rules and persona are prompt-cached. |
+| `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`, `CLAUDE_EFFORT` | Claude settings (default `claude-sonnet-5-5`, effort `low`). The rules and persona are prompt-cached. |
 | `FALLBACK_MODEL`, `FALLBACK_AFTER_SECONDS` | Backup model (default `gpt-5.4-mini`; a name starting with `claude` uses Claude; `none` turns it off). It answers when the main model fails or hasn't started answering after 20 seconds, and also forms memories and decides about speaking first if the main model fails. The page shows a note when it answered, and the Brain chip's tooltip names it. |
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_VOICE_NAME`, `ELEVENLABS_MODEL` | Cloned voice, filled in by the **Voice** chip. Leave them blank to use the Mac voice. |
 | `ENV_FILE` | Use a different settings file than `.env` (for testing). |

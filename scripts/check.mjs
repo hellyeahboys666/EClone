@@ -58,7 +58,7 @@ if (!existsSync(envFile) || brain === 'chatgpt') {
   // Nothing to check until setup has written .env.
 } else if (!env[keyName] && !(brain === 'claude' && env.ANTHROPIC_AUTH_TOKEN)) {
   fail(`Brain is ${brain}, but ${keyName} is empty, so the clone is in demo mode`, 'npm run setup');
-} else if (offline) ok(`Brain: ${brain} (${brain === 'openai' ? env.OPENAI_MODEL || 'gpt-5.4' : env.CLAUDE_MODEL || 'claude-opus-5-5'}), key not tested (--offline)`);
+} else if (offline) ok(`Brain: ${brain} (${brain === 'openai' ? env.OPENAI_MODEL || 'gpt-5.4' : env.CLAUDE_MODEL || 'claude-sonnet-5-5'}), key not tested (--offline)`);
 else {
   const url = brain === 'openai' ? 'https://api.openai.com/v1/models' : 'https://api.anthropic.com/v1/models';
   const headers = brain === 'openai' ? { Authorization: `Bearer ${env[keyName]}` } : { 'x-api-key': env[keyName], 'anthropic-version': '2023-06-01' };

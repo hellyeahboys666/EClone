@@ -44,7 +44,7 @@ const config = {
   // openai (GPT through the API), claude (Claude through the API), or chatgpt (GPT through
   // Codex, signed in with your ChatGPT account, so it uses your ChatGPT plan; see codex.js).
   brain: ['openai', 'claude', 'chatgpt'].includes(process.env.BRAIN) ? process.env.BRAIN : 'claude',
-  model: process.env.CLAUDE_MODEL || 'claude-opus-5-5',
+  model: process.env.CLAUDE_MODEL || 'claude-sonnet-5-5',
   effort: process.env.CLAUDE_EFFORT || 'low',
   openaiModel: process.env.OPENAI_MODEL || 'gpt-5.4',
   openaiEffort: process.env.OPENAI_REASONING_EFFORT || 'low',

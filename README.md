@@ -128,7 +128,7 @@ The easy way is to run `npm run setup` again. Or open `.env` in a text editor, c
 |---|---|
 | `BRAIN` | `openai`, `claude`, or `chatgpt` (your ChatGPT plan through Codex) |
 | `OPENAI_API_KEY`, `OPENAI_MODEL` | GPT key and model (default `gpt-5.4`; `gpt-5.4-mini` is faster and cheaper). The OpenAI key also powers recall by meaning and the backup model. |
-| `ANTHROPIC_API_KEY`, `CLAUDE_MODEL` | Claude key and model (default `claude-opus-5-5`) |
+| `ANTHROPIC_API_KEY`, `CLAUDE_MODEL` | Claude key and model (default `claude-sonnet-5-5`) |
 | `FALLBACK_MODEL`, `FALLBACK_AFTER_SECONDS` | Backup model if the main one fails or is silent (default `gpt-5.4-mini` after 20 seconds; `none` turns it off) |
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | Cloned voice (blank uses the Mac's voice). Easiest to set from the **Voice** chip on the page. |
 | `CLONE_NAME` | Name shown on the page |
