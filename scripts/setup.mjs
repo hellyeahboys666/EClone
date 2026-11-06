@@ -197,7 +197,7 @@ else {
   mkdirSync(personaDir, { recursive: true });
   const template = path.join(ROOT, 'persona-template');
   for (const f of readdirSync(template)) copyFileSync(path.join(template, f), path.join(personaDir, f));
-  ok(`Started ${path.relative(ROOT, personaDir)}/ from the template. Fill it in on the Mind page (or in any text editor).`);
+  ok(`Started ${path.relative(ROOT, personaDir)}/ from the template. Next: on the Mind page, Build from everything: add their chats, writing and answers, and it builds the persona from them.`);
 }
 
 writeEnv(text, changes);

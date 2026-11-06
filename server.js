@@ -12,6 +12,10 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { createMemory, formatTime, loadJson, saveJson } from './memory.js';
 import { updateEnvFile } from './env-file.js';
+import {
+  KINDS, NOTE_PLAN, NOTE_SCHEMA, FINDINGS_SCHEMA, SCORE_SCHEMA,
+  chunks, describeStyle, examplesNote, exchanges, findingsFor, measureStyle, parseSource, pickExchanges, speakers, wordCount,
+} from './persona-builder.js';
 import { createCodex } from './codex.js';
 import { FEELINGS, createMood, createTagReader, moodTag, splitMoodTag } from './mood.js';
 import { cleanHouse } from './public/house-config.js';
@@ -36,6 +40,9 @@ const config = {
   port: Number(process.env.PORT || 4747),
   name: process.env.CLONE_NAME || process.env.TWIN_NAME || 'Clone', // TWIN_ names from older setups still work
   personaDir: path.resolve(ROOT, process.env.PERSONA_DIR || 'persona'),
+  // Everything you give it about the person (chats, writing, answers), to build the persona from (private).
+  sourcesDir: path.resolve(ROOT, process.env.SOURCES_DIR || 'sources'),
+  personaBackupsDir: path.resolve(ROOT, process.env.PERSONA_BACKUPS_DIR || 'persona-backups'),
   rulesFile: path.resolve(ROOT, process.env.RULES_FILE || 'rules.md'), // another file lets you try rule changes side by side
   memoryDir: path.resolve(ROOT, process.env.MEMORY_DIR || 'memory'),
   houseFile: path.resolve(ROOT, process.env.HOUSE_FILE || 'house.json'), // the House panel's settings
@@ -955,6 +962,301 @@ async function handleMind(res) {
   });
 }
 
+// ---- Building the persona from everything about the person -------------------------
+// Sources (chats, their writing, their answers, what others say about them) are kept in
+// sources/: index.json lists them, <id>.txt holds each one as given, and
+// analysis.json holds the last analysis (the drafted notes) and accuracy tests.
+
+const SOURCE_LIMIT = 20_000_000;
+let build = null; // the analysis or accuracy test running now: { kind, step, done, total, error }
+
+const sourcesIndexFile = () => path.join(config.sourcesDir, 'index.json');
+const analysisFile = () => path.join(config.sourcesDir, 'analysis.json');
+async function loadSources() {
+  return loadJson(sourcesIndexFile(), { consent: null, sources: [] }).catch(() => ({ consent: null, sources: [] }));
+}
+async function saveSources(index) {
+  await mkdir(config.sourcesDir, { recursive: true });
+  await saveJson(sourcesIndexFile(), index);
+}
+async function loadAnalysis() {
+  return loadJson(analysisFile(), null).catch(() => null);
+}
+async function readSource(meta) {
+  const raw = await readFile(path.join(config.sourcesDir, `${meta.id}.txt`), 'utf8');
+  return { ...meta, parsed: parseSource(raw, meta.name) };
+}
+
+async function sourcesState() {
+  const index = await loadSources();
+  const analysis = await loadAnalysis();
+  return {
+    name: config.name,
+    kinds: KINDS,
+    consent: index.consent,
+    sources: index.sources,
+    build,
+    analysis: analysis && { builtAt: analysis.builtAt, appliedAt: analysis.appliedAt ?? null, stats: analysis.stats, drafts: analysis.drafts, gaps: analysis.gaps, counts: analysis.counts, held: analysis.test?.length ?? 0 },
+    tests: analysis?.tests ?? [],
+  };
+}
+
+async function handleSourcesAction(req, res) {
+  const body = await readJson(req, SOURCE_LIMIT + 100_000);
+  const index = await loadSources();
+  const busy = () => build && !build.finished;
+  switch (body.action) {
+    case 'consent':
+      index.consent = body.agreed ? { agreed: true, at: new Date().toISOString() } : null;
+      await saveSources(index);
+      break;
+    case 'add': {
+      if (!index.consent?.agreed) return sendJson(res, 403, { error: `First confirm that ${config.name} agreed to this.` });
+      const text = String(body.text ?? '');
+      if (!text.trim()) return sendJson(res, 400, { error: 'That source is empty.' });
+      const name = String(body.name ?? 'Pasted text').replace(/[\r\n]/g, ' ').trim().slice(0, 120) || 'Pasted text';
+      const parsed = parseSource(text, name);
+      const id = randomUUID().replace(/-/g, '').slice(0, 12);
+      await mkdir(config.sourcesDir, { recursive: true });
+      await writeFile(path.join(config.sourcesDir, `${id}.txt`), text);
+      const people = parsed.format === 'chat' ? speakers(parsed.messages) : [];
+      // In a chat, guess the person: the speaker whose name matches the clone's, if any.
+      const first = config.name.toLowerCase().split(/\s+/)[0];
+      const guess = people.find((p) => p.name.toLowerCase().split(/\s+/).includes(first) || p.name.toLowerCase().startsWith(first))?.name ?? null;
+      index.sources.push({
+        id,
+        name,
+        kind: parsed.format === 'chat' ? 'chat' : KINDS[body.kind] && body.kind !== 'chat' ? body.kind : 'writing',
+        format: parsed.format,
+        speakers: people.slice(0, 30),
+        speaker: guess,
+        words: parsed.format === 'chat' ? parsed.messages.reduce((n, m) => n + wordCount(m.text), 0) : wordCount(parsed.text),
+        messages: parsed.format === 'chat' ? parsed.messages.length : 0,
+        addedAt: new Date().toISOString(),
+      });
+      await saveSources(index);
+      break;
+    }
+    case 'update': {
+      const source = index.sources.find((s) => s.id === body.id);
+      if (!source) return sendJson(res, 404, { error: 'No such source.' });
+      if (source.format === 'chat' && body.speaker !== undefined) source.speaker = source.speakers.some((p) => p.name === body.speaker) ? body.speaker : null;
+      if (source.format !== 'chat' && KINDS[body.kind] && body.kind !== 'chat') source.kind = body.kind;
+      await saveSources(index);
+      break;
+    }
+    case 'remove':
+      index.sources = index.sources.filter((s) => s.id !== body.id);
+      if (/^[a-f0-9]{12}$/.test(body.id)) await rm(path.join(config.sourcesDir, `${body.id}.txt`), { force: true });
+      await saveSources(index);
+      break;
+    case 'analyze':
+      if (busy()) return sendJson(res, 409, { error: 'Already working on it.' });
+      if (!index.consent?.agreed) return sendJson(res, 403, { error: `First confirm that ${config.name} agreed to this.` });
+      if (!hasBrainKey()) return sendJson(res, 400, { error: 'The clone needs a working brain (an API key or the ChatGPT sign-in) to analyze.' });
+      if (!index.sources.length) return sendJson(res, 400, { error: 'Add something about them first.' });
+      if (index.sources.some((s) => s.format === 'chat' && !s.speaker)) return sendJson(res, 400, { error: `In each chat, pick which speaker is ${config.name}.` });
+      runBuild('analyze', () => analyzeSources(index));
+      break;
+    case 'apply':
+      if (busy()) return sendJson(res, 409, { error: 'Wait until it finishes.' });
+      await applyDrafts(body.drafts);
+      break;
+    case 'test':
+      if (busy()) return sendJson(res, 409, { error: 'Already working on it.' });
+      if (!hasBrainKey()) return sendJson(res, 400, { error: 'The clone needs a working brain to test.' });
+      runBuild('test', testAccuracy);
+      break;
+    default:
+      return sendJson(res, 400, { error: 'Unknown action.' });
+  }
+  sendJson(res, 200, await sourcesState());
+}
+
+// Runs an analysis or test in the background; the page follows `build` for progress.
+function runBuild(kind, work) {
+  build = { kind, step: 'Starting', done: 0, total: 0, error: null, finished: false, startedAt: Date.now() };
+  const job = build;
+  work(job)
+    .catch((err) => {
+      console.error(`[build] ${kind}`, err);
+      job.error = describeError(err);
+    })
+    .finally(() => (job.finished = true));
+}
+
+// A few requests at a time, so a long analysis doesn't take forever or flood the API.
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  }));
+  return out;
+}
+
+async function analyzeSources(index, job = build) {
+  const sources = await Promise.all(index.sources.map(readSource));
+  const name = config.name;
+
+  // 1. Counted, not guessed: how they text, and real exchanges.
+  job.step = 'Measuring how they text';
+  const chats = sources.filter((s) => s.parsed.format === 'chat');
+  const mine = chats.flatMap((s) => s.parsed.messages.filter((m) => m.speaker === s.speaker).map((m) => m.text));
+  const stats = measureStyle(mine);
+  const picked = pickExchanges(chats.flatMap((s) => exchanges(s.parsed.messages, s.speaker)));
+
+  // 2. The AI reads everything, piece by piece, and pulls out what it shows about them.
+  const pieces = chunks(sources);
+  job.step = 'Reading everything';
+  job.total = pieces.length;
+  const reader =
+    `You are helping build an accurate picture of one real person, ${name}, from material they agreed to share. ` +
+    'Read the piece you are given and list what it shows about them: facts, routines, goals, how they talk (real phrases, slang, ' +
+    'typing habits), temperament (what annoys them, how they react, how they joke), opinions, likes, dislikes, people in their life ' +
+    "(name, who they are to them, how they feel about them) and stories. Only what the piece really shows: no guesses, no generic traits. " +
+    "Write each finding as a short, specific sentence about them. Add a short exact quote that shows it when there is one, else an empty quote. " +
+    'In chats, only the lines marked ME are theirs; use the other lines just as context.';
+  const findings = (
+    await mapLimit(pieces, 3, async (piece) => {
+      try {
+        const { data, usage } = await completeJson(reader, `${piece.label}\nFrom: ${piece.source}\n\n${piece.text}`, FINDINGS_SCHEMA);
+        await memory.recordUsage('persona', usage);
+        return (data.findings ?? []).map((f) => ({ ...f, kind: piece.kind }));
+      } catch (err) {
+        console.error('[build] piece', describeError(err));
+        return [];
+      } finally {
+        job.done++;
+      }
+    })
+  ).flat();
+  if (!findings.length) throw new Error("Couldn't get anything out of the sources. Check the clone's brain works, then try again.");
+
+  // 3. The notes, written from the findings, one per topic.
+  job.step = 'Writing the notes';
+  job.done = 0;
+  job.total = NOTE_PLAN.length;
+  const writer =
+    `You write one persona note for a digital clone of ${name}, a real person, from findings about them. The clone reads it as its own notes. ` +
+    "Write in the first person, as them (\"I'm 17\", not \"they're 17\"). Be specific and concrete: real names, real phrases in quotes, real opinions, " +
+    'real habits. One fact or habit per line, as short lines or bullets under a few headings. Use only what the findings support; never invent. ' +
+    "When findings disagree, prefer the person's own words over second-hand ones, and mention real inconsistency briefly. Leave out anything trivial or repeated. " +
+    'Start with a "# " heading. Then list in `missing` up to 6 short questions you would ask them to fill the biggest gaps for this topic.';
+  const notes = await mapLimit(NOTE_PLAN, 2, async (plan) => {
+    const lines = findingsFor(findings, plan.categories);
+    try {
+      if (!lines.length) return { plan, text: `# ${plan.title}\n\n(Nothing in the sources about this yet.)`, missing: [`Tell me about: ${plan.covers}.`] };
+      const extra = plan.file === '02-how-i-talk.md' && stats
+        ? `\n\nMeasured from their real messages (for your understanding; the exact numbers are added under the note automatically, so describe the style in words and don't repeat the numbers):\n${describeStyle(stats)}`
+        : '';
+      const { data, usage } = await completeJson(writer, `Note: ${plan.file} (${plan.title}). It covers ${plan.covers}.\n\nFindings:\n${lines.join('\n')}${extra}`, NOTE_SCHEMA);
+      await memory.recordUsage('persona', usage);
+      return { plan, text: String(data.text ?? '').trim(), missing: data.missing ?? [] };
+    } finally {
+      job.done++;
+    }
+  });
+
+  const drafts = notes.map(({ plan, text }) => ({
+    file: plan.file,
+    text: plan.file === '02-how-i-talk.md' && stats ? `${text}\n\n## Measured from my messages\n\n${describeStyle(stats)}\n` : `${text}\n`,
+  }));
+  if (picked.examples.length) drafts.push({ file: '05-real-examples.md', text: `${examplesNote(picked.examples)}\n` });
+  const gaps = [...new Set(notes.flatMap((n) => n.missing.map((q) => String(q).trim()).filter(Boolean)))].slice(0, 18);
+
+  const old = await loadAnalysis();
+  await mkdir(config.sourcesDir, { recursive: true });
+  await saveJson(analysisFile(), {
+    builtAt: new Date().toISOString(),
+    stats,
+    drafts,
+    gaps,
+    test: picked.test, // real exchanges kept out of the notes, for the accuracy test
+    counts: { sources: sources.length, pieces: pieces.length, findings: findings.length, myMessages: mine.length, examples: picked.examples.length },
+    tests: old?.tests ?? [],
+  });
+  job.step = 'Done';
+}
+
+// Uses the (possibly edited) drafts as the persona notes. The old notes are copied to
+// persona-backups/<date and time>/ first, so nothing is lost.
+async function applyDrafts(edited) {
+  const analysis = await loadAnalysis();
+  if (!analysis) throw Object.assign(new Error('Analyze first.'), { status: 400 });
+  const drafts = Array.isArray(edited) && edited.length ? edited : analysis.drafts;
+  const allowed = new Set(analysis.drafts.map((d) => d.file));
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-');
+  const existing = (await readdir(config.personaDir).catch(() => [])).filter((f) => f.endsWith('.md') && f !== 'README.md');
+  if (existing.length) {
+    const backup = path.join(config.personaBackupsDir, stamp);
+    await mkdir(backup, { recursive: true });
+    for (const f of existing) await writeFile(path.join(backup, f), await readFile(path.join(config.personaDir, f)));
+  }
+  await mkdir(config.personaDir, { recursive: true });
+  for (const d of drafts) {
+    if (!allowed.has(d.file)) continue;
+    await writeText(path.join(config.personaDir, d.file), String(d.text ?? '').slice(0, 100_000));
+  }
+  analysis.drafts = analysis.drafts.map((d) => drafts.find((e) => e.file === d.file) ?? d);
+  analysis.appliedAt = new Date().toISOString();
+  analysis.backup = existing.length ? stamp : null;
+  await saveJson(analysisFile(), analysis);
+}
+
+// Accuracy: the clone answers real messages it has never seen (held out from the
+// notes), and its replies are scored against what the person really said.
+async function testAccuracy(job = build) {
+  const name = config.name;
+  const analysis = await loadAnalysis();
+  const held = analysis?.test ?? [];
+  if (!held.length) throw new Error('No held-out chat messages to test with. Add chats with them in it, then analyze.');
+  const system = await buildSystemPrompt();
+  job.step = 'The clone is answering real messages';
+  job.total = held.length;
+  const REPLY = { type: 'object', additionalProperties: false, required: ['reply'], properties: { reply: { type: 'string' } } };
+  const replies = await mapLimit(held, 3, async (e) => {
+    try {
+      const { data, usage } = await completeJson(
+        system,
+        `This is a text chat, not a spoken one. Someone you know just texted you:\n"${e.they}"\n\n` +
+          'Write exactly what you would text back, in your own style. If you would send several short messages, separate them with " / ". No mood tag, nothing else.',
+        REPLY,
+      );
+      await memory.recordUsage('persona', usage);
+      return splitMoodTag(String(data.reply ?? '').trim()).text;
+    } catch (err) {
+      console.error('[build] test reply', describeError(err));
+      return '';
+    } finally {
+      job.done++;
+    }
+  });
+  job.step = 'Scoring';
+  const items = held.map((e, i) => ({ they: e.they, real: e.me, clone: replies[i] }));
+  const judge =
+    `You judge how well a digital clone of ${name} imitates them. For each item you get what someone texted, what ${name} really replied, ` +
+    "and what the clone replied. Score style 1-10 (would a close friend believe the clone's reply came from them: length, wording, slang, " +
+    'capitals, punctuation, tone) and substance 1-10 (same attitude, answer and facts; a different but equally plausible answer can still score well). ' +
+    'Add a short note on what is off. Then a summary: the biggest consistent differences, and what information about them seems to be missing.';
+  const { data, usage } = await completeJson(judge, items.map((it, i) => `Item ${i}\nThey: ${it.they}\nReal: ${it.real}\nClone: ${it.clone || '(no reply)'}`).join('\n\n'), SCORE_SCHEMA);
+  await memory.recordUsage('persona', usage);
+  const scored = items.map((it, i) => {
+    const s = (data.scores ?? []).find((x) => x.index === i) ?? { style: 0, substance: 0, note: '' };
+    const clamp = (n) => Math.max(0, Math.min(10, Math.round(Number(n) || 0)));
+    return { ...it, style: clamp(s.style), substance: clamp(s.substance), note: String(s.note ?? '') };
+  });
+  const avg = (k) => Math.round((10 * scored.reduce((n, s) => n + s[k], 0)) / scored.length) / 10;
+  const result = { at: new Date().toISOString(), style: avg('style'), substance: avg('substance'), summary: String(data.summary ?? ''), items: scored };
+  const latest = await loadAnalysis();
+  latest.tests = [result, ...(latest.tests ?? [])].slice(0, 6);
+  await saveJson(analysisFile(), latest);
+  job.step = 'Done';
+}
+
 // Writes a text file safely: to a temporary file first, then renamed into place.
 async function writeText(file, text) {
   await mkdir(path.dirname(file), { recursive: true });
@@ -1207,11 +1509,11 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-async function readJson(req) {
+async function readJson(req, limit = 1_000_000) {
   let raw = '';
   for await (const chunk of req) {
     raw += chunk;
-    if (raw.length > 1_000_000) throw new Error('Request too large');
+    if (raw.length > limit) throw Object.assign(new Error('Too large: the limit is about 20 MB per file.'), { status: 413 });
   }
   return raw ? JSON.parse(raw) : {};
 }
@@ -1250,6 +1552,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/import') return await handleImport(req, res);
     if (req.method === 'GET' && pathname === '/api/config') return await handleConfig(res);
     if (req.method === 'GET' && pathname === '/api/voice') return sendJson(res, 200, voiceState());
+    if (req.method === 'GET' && pathname === '/api/sources') return sendJson(res, 200, await sourcesState());
+    if (req.method === 'POST' && pathname === '/api/sources') return await handleSourcesAction(req, res);
     if (req.method === 'POST' && pathname === '/api/voice/voices') return await handleVoiceRoute(req, res, handleVoiceList);
     if (req.method === 'POST' && pathname === '/api/voice/try') return await handleVoiceRoute(req, res, handleVoiceTry);
     if (req.method === 'POST' && pathname === '/api/voice') return await handleVoiceRoute(req, res, handleVoiceSave);
@@ -1260,7 +1564,7 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 405, { error: 'Method not allowed' });
   } catch (err) {
     console.error('[server]', err);
-    if (!res.headersSent) sendJson(res, 500, { error: err.message });
+    if (!res.headersSent) sendJson(res, err.status ?? 500, { error: err.message });
     else res.end();
   }
 });

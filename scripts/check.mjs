@@ -93,10 +93,10 @@ else if (process.platform === 'darwin') {
 
 const personaDir = path.resolve(ROOT, env.PERSONA_DIR || 'persona');
 const notes = existsSync(personaDir) ? readdirSync(personaDir).filter((f) => f.endsWith('.md') && f !== 'README.md') : [];
-if (!notes.length) fail('No persona notes, so the clone doesn\'t know who it is', 'npm run setup (starts from the template), then fill them in on the Mind page');
+if (!notes.length) fail('No persona notes, so the clone doesn\'t know who it is', 'npm run setup, then on the Mind page use Build from everything (add their chats, writing and answers)');
 else {
   const unfinished = notes.filter((f) => readFileSync(path.join(personaDir, f), 'utf8').includes('(replace this)')).length;
-  if (unfinished) warn(`${notes.length} persona notes, ${unfinished} still with template text "(replace this)"; fill them in on the Mind page`);
+  if (unfinished) warn(`${notes.length} persona notes, ${unfinished} still with template text "(replace this)"; build them on the Mind page (Build from everything)`);
   else ok(`${notes.length} persona notes`);
 }
 

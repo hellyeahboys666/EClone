@@ -2,6 +2,10 @@
 
 Every `.md` file in this folder, except this README, is given to the clone with each message. Edits apply on the next message, with no restart needed. Edit them on the **Mind** page (the Mind button on the clone's page) or in any text editor.
 
+## The easy way: build them from real material
+
+On the **Mind** page, **Build from everything** writes these notes for you from their chats, writing and answers, and tests how accurate the clone is. The rest of this guide is for writing or touching them up by hand.
+
 ## How to write them
 
 - **Write in the first person**, as the person: "I'm 19", not "Sam is 19".

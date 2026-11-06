@@ -3,6 +3,7 @@
 // are safe while the clone is running.
 
 import { DAYS, DAY_NAMES, NOTICE_OPTIONS, PRESETS, clock, currentActivity, nextActivity } from './schedule-config.js';
+import { createBuildTab } from './mind-build.js';
 
 const view = document.getElementById('view');
 const statusEl = document.getElementById('status');
@@ -38,7 +39,16 @@ async function load() {
   state = await res.json();
   document.getElementById('title').textContent = `${state.name}'s mind`;
   document.title = `Mind · ${state.name}`;
+  // A clone that still has the blank template starts on building it.
+  const notes = state.persona.filter((n) => n.name !== 'README.md');
+  if (!load.done && (!notes.length || notes.some((n) => n.text.includes('(replace this)')))) selectTab('build');
+  load.done = true;
   render();
+}
+
+function selectTab(name) {
+  tab = name;
+  for (const b of document.querySelectorAll('[data-tab]')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
 }
 
 async function change(action, body = {}, done = 'Saved. It applies on the next message.') {
@@ -62,16 +72,15 @@ async function change(action, body = {}, done = 'Saved. It applies on the next m
 
 for (const button of document.querySelectorAll('[data-tab]')) {
   button.addEventListener('click', () => {
-    tab = button.dataset.tab;
+    selectTab(button.dataset.tab);
     if (tab === 'schedule') draft = null; // start from what's saved
-    for (const b of document.querySelectorAll('[data-tab]')) b.setAttribute('aria-selected', String(b === button));
     render();
   });
 }
 
 function render() {
   if (!state) return;
-  const views = { persona: personaView, rules: rulesView, memories: memoriesView, schedule: scheduleView, state: stateView };
+  const views = { build: () => build.view(), persona: personaView, rules: rulesView, memories: memoriesView, schedule: scheduleView, state: stateView };
   view.replaceChildren(views[tab]());
 }
 
@@ -280,5 +289,8 @@ function stateView() {
     ),
   );
 }
+
+// Using the built notes changes the persona: reload it so the Persona notes tab shows them.
+const build = createBuildTab({ h, say, onApplied: () => load().catch(() => {}) });
 
 load().catch((err) => say(`Couldn't load: ${err.message}`, true));

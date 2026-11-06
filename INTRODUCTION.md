@@ -8,6 +8,7 @@ A web app that runs on one Mac and lets you talk with a 3D "digital clone" of a 
 
 - You type, or click the mic and talk.
 - An AI model (OpenAI's GPT or Anthropic's Claude) answers in that person's voice and style, based on notes about them.
+- The main point is accuracy: the notes are built from everything you have about the person (their chats, writing, answers to questions, what others say about them). The app analyzes it all, writes the notes, and tests the clone against real messages it has never seen.
 - The reply is read aloud, sentence by sentence, in a Mac voice or a cloned voice from ElevenLabs.
 - A 3D avatar stands in a house and moves its mouth along with the audio, blinks, and idles. The house is a living room with a window (the sun casts light through it), a kitchen through a doorway, and furniture. Its look can be changed from a House panel.
 - The clone remembers past conversations in files on the Mac, loosely the way a person does: it forms memories, recalls the ones related to what's being said, and lets the rest fade.
@@ -64,6 +65,8 @@ you ──text/speech──▶ browser (public/) ──▶ server.js ──▶ G
 | `Start EClone.command` | Double-click launcher for Mac. It installs if needed, runs setup the first time, starts the clone and opens the browser, or just opens the browser if the clone is already running. |
 | `persona-template/` | The starting persona: a writing guide with 15 interview questions, and four fill-in notes marked "(replace this)". |
 | `public/mind.html`, `mind.js`, `mind.css` | The Mind page (`/mind`).<br>• Edit, add and delete persona notes, and edit `rules.md`.<br>• Search, edit, add and forget memories, change their importance, or forget everything.<br>• Reset the mood, or clear the chat without remembering it.<br>Changes go through `POST /api/mind`, so they're safe while the clone runs and memories are forming. |
+| `persona-builder.js` | Building the persona from sources: reads chat exports (WhatsApp, Discord, Instagram/Messenger, Telegram, CSV, transcripts) and plain text, counts how the person texts, picks real example exchanges and a held-out test set, cuts the material into pieces for the AI. No network. |
+| `public/mind-build.js` | The **Build from everything** tab: consent, adding sources, analyze with progress, review and use the drafted notes, accuracy test results. |
 | `memory.js` | The clone's memory: saving the conversation, forming memories and impressions, recall by meaning, fading, and token counts. |
 | `codex.js` | The ChatGPT sign-in brain (`BRAIN=chatgpt`). Each message runs `codex exec`:
 • signed in with ChatGPT, so it uses the ChatGPT plan, not API credits
@@ -75,7 +78,8 @@ The prompt goes in on stdin. The reply comes back in one piece through its JSON 
 | `mood.js` | The clone's mood: reading the hidden mood tag, saving the feeling, and fading it over time. Anger and hurt also cool slowly per message (`settle`): whatever the brain reports, one message takes at most 2 points off, so a quick "sorry" can't snap it back to fine, and the brain is reminded to keep acting it out. `rules.md` (Getting mad) makes it react fast to insults and mockery, by its own temper. |
 | `rules.md` | General behavior rules for any clone (how to talk, time and memory, having opinions, honesty). Re-read on every message. |
 | `persona/` | Notes about the person: who they are, how they talk, their opinions. Re-read on every message. **Private.** |
-| `persona-backups/` | Earlier copies of the persona notes. **Private.** |
+| `persona-backups/` | Earlier copies of the persona notes (made before built notes replace them). **Private.** |
+| `sources/` | Everything added on **Build from everything**: each source as given, `index.json` (the list, consent, who is who in chats) and `analysis.json` (drafted notes, measured style, held-out test exchanges, accuracy tests). **Private.** |
 | `memory/` | The clone's memory files (created automatically). **Private.** |
 | `avatar/` | Put a `.vrm` or `.glb` avatar here to replace the sample one. **Private.** |
 | `public/index.html` | The page: 3D canvas, top bar with status chips, chat panel. Loads three.js from a CDN with an import map, so there's no build step. |
@@ -170,6 +174,8 @@ Every write goes to a temporary file first and is then renamed into place, so a 
 | `GET /api/voice` | The voice in use, whether a key is saved (never the key), the voice and model. |
 | `POST /api/voice/voices` `{ key? }` | The ElevenLabs account's voices (yours first, with previews) and text-to-speech models. Free. |
 | `POST /api/voice/try` `{ key?, voiceId, model, text? }` | One line in that voice, before saving (uses a few credits). |
+| `GET /api/sources` | Sources, consent, the running analysis or test, the drafted notes and accuracy tests. |
+| `POST /api/sources` `{ action, ... }` | `consent`, `add` `{ name, text, kind }`, `update` `{ id, kind or speaker }`, `remove`, `analyze` (background), `apply` `{ drafts }` (backs up, then writes the notes), `test` (background accuracy test). |
 | `POST /api/voice` `{ key?, voiceId, voiceName, model }` or `{ use: 'mac' }` | Saves the voice to `.env` and uses it right away, or switches back to the Mac voice. |
 | `GET /api/conversation` | The current conversation, used to redraw the chat after a refresh. |
 | `POST /api/new-chat` | Forms memories from this conversation, then starts a fresh one. |
@@ -193,6 +199,7 @@ Every write goes to a temporary file first and is then renamed into place, so a 
 | `FALLBACK_MODEL`, `FALLBACK_AFTER_SECONDS` | Backup model (default `gpt-5.4-mini`; a name starting with `claude` uses Claude; `none` turns it off). It answers when the main model fails or hasn't started answering after 20 seconds, and also forms memories and decides about speaking first if the main model fails. The page shows a note when it answered, and the Brain chip's tooltip names it. |
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_VOICE_NAME`, `ELEVENLABS_MODEL` | Cloned voice, filled in by the **Voice** chip. Leave them blank to use the Mac voice. |
 | `ENV_FILE` | Use a different settings file than `.env` (for testing). |
+| `SOURCES_DIR`, `PERSONA_BACKUPS_DIR` | Where the build sources and the persona backups are kept (default `sources/`, `persona-backups/`). |
 | `MAC_VOICE` | A voice name from `say -v '?'` |
 | `CLONE_NAME` | The name shown on the page |
 | `HOUSE_FILE` | Where the House settings are saved (default `house.json`) |
@@ -271,7 +278,7 @@ Each idea was tried side by side against the current version, using a made-up st
 ## Working rules for anyone changing it
 
 - **Keep keys secret.** Never print, paste, or commit API keys. They live only in `.env`.
-- **Keep the private folders private.** `persona/`, `persona-backups/`, `memory/`, and any avatar (`.vrm`, `.glb`) or voice files are about a real person. Don't upload them, commit them, or paste their contents into AI tools.
+- **Keep the private folders private.** `persona/`, `persona-backups/`, `sources/`, `memory/`, and any avatar (`.vrm`, `.glb`) or voice files are about a real person. Don't upload them, commit them, or paste their contents into AI tools.
 - **Test with a made-up persona and a separate memory folder,** so tests don't touch the real clone's memory. For example:
 
   ```bash

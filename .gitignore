@@ -3,6 +3,7 @@ node_modules/
 # Personal: the person's notes, memories, avatar, voice samples. Never share or commit these.
 persona/
 persona-backups/
+sources/
 memory/
 avatar/*
 !avatar/.gitkeep

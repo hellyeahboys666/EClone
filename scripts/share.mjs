@@ -13,7 +13,7 @@ const name = path.basename(ROOT);
 const out = path.join(path.dirname(ROOT), `${name}-share.zip`);
 
 const exclude = [
-  '.env', 'persona/*', 'persona-backups/*', 'memory/*', 'avatar/*.vrm', 'avatar/*.VRM', 'avatar/*.glb', 'avatar/*.GLB', 'media/*', 'reference/*', 'house.json', 'house-assets/*', 'schedule.json',
+  '.env', 'persona/*', 'persona-backups/*', 'sources/*', 'memory/*', 'avatar/*.vrm', 'avatar/*.VRM', 'avatar/*.glb', 'avatar/*.GLB', 'media/*', 'reference/*', 'house.json', 'house-assets/*', 'schedule.json',
   'node_modules/*', '.git/*', '.claude/*', '*.DS_Store', '*.tmp',
 ].map((p) => `${name}/${p}`);
 

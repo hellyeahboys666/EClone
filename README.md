@@ -72,7 +72,7 @@ Setup:
 - asks you to paste your API key (it's hidden while you type)
 - tests the key
 - asks whether to set up a cloned voice
-- starts the persona notes from a template
+- starts the persona notes from a template (then you build them from real material on the Mind page)
 
 Everything is saved in `.env`, which only you can read. Run `npm run setup` again any time to change these answers.
 
@@ -86,9 +86,21 @@ npm start
 
 Then open **http://localhost:4747**. To stop it, press **Ctrl+C** in the Terminal window (or close the window).
 
-### 4. Tell it who it is
+### 4. Build it from everything you have
 
-Click **Mind** at the top of the page, then **Persona notes**, and fill in the four notes. Replace every "(replace this)", and use the interview questions in the README note. Changes apply on the next message.
+This is the main step: the clone is only as accurate as what you give it. Click **Mind** at the top of the page. It opens on **Build from everything**:
+
+1. **Consent.** Confirm the person agreed to have a clone made from this material.
+2. **Add everything you have.** Drop in files or paste text:
+   - **Chats with them in it** (the most valuable: it learns how they really text). WhatsApp exports (.txt), Discord (DiscordChatExporter .json), Instagram or Messenger (.json from "Download your information"), Telegram (result.json), CSV exports, or plain "Name: message" transcripts. For each chat, pick which speaker is them.
+   - **Their own writing:** essays, posts, notes, captions.
+   - **Their answers to questions:** the interview questions in `persona-template/README.md` are a good start.
+   - **Written about them by someone else:** what friends and family say about them (used as weaker, second-hand evidence).
+3. **Analyze.** The clone's brain reads everything piece by piece and pulls out facts, routines, goals, how they talk, temper, opinions, likes, people and stories, each backed by a quote. How they text (message length, capitals, punctuation, emoji, favourite phrases) is counted exactly from their real messages, not guessed. It then writes the persona notes, plus a note of real example exchanges, plus questions to ask them where it's missing information.
+4. **Review and use.** Edit the drafted notes if you like, then **Use these notes**. Old notes are backed up in `persona-backups/` first.
+5. **Test accuracy.** Some real exchanges are kept out of the notes on purpose. The clone answers them blind, and each answer is scored against what the person really said: how much it sounds like them, and whether it says what they would. Answer the suggested questions, add more material, analyze again, and watch the score go up.
+
+Everything you add stays in `sources/` on your computer (private, left out of git and `npm run share`). Analyzing sends it to your AI provider in pieces, like any message. You can still edit the notes by hand under **Persona notes**.
 
 ### 5. If something's wrong
 
@@ -285,7 +297,8 @@ EClone makes a clone of a real person, so please use it the way you'd want someo
 - **Only with their consent.** Make a clone only of someone who agrees to it and knows what it can do. Don't make one of a person who can't agree, or who hasn't.
 - **Let them decide.** They should know who talks to their clone and whether it's ever shown publicly, and be able to have it changed or deleted. If they ask you to delete it, delete it.
 - **Don't deceive anyone with it.** Don't use a clone to impersonate the person, pretend to be them in messages or calls, or trick people into thinking they're talking to the real person. The clone is built to say it's an AI when sincerely asked; keep it that way.
-- **Keep it private.** Persona notes, memories, voice samples and avatars are about a real person. Don't publish or share them without permission (`npm run share` and `.gitignore` leave them out).
+- **Only material they agreed to.** Build the clone from what the person shared or agreed to: their chats with you, their writing, their answers. Don't collect material about someone behind their back, and remember chats also contain the other people in them.
+- **Keep it private.** Persona notes, source material, memories, voice samples and avatars are about a real person. Don't publish or share them without permission (`npm run share` and `.gitignore` leave them out).
 - **Voices and faces need consent too.** A cloned voice or a lookalike avatar should come from the person themselves, through the provider's own consent process.
 - **Not for harm.** Don't use EClone to harass, defraud or manipulate anyone, or for anything illegal where you live.
 
