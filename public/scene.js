@@ -24,48 +24,118 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
   scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
 
   // Start farther back on narrow (portrait) screens so the room still fits.
-  const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
+  const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 60);
   const startAspect = window.innerWidth / window.innerHeight;
   camera.position.set(0, 1.42, 2.9 * Math.max(1, 1 / Math.sqrt(startAspect)));
-  // Look anywhere: drag to turn around (all the way), scroll or pinch to zoom, and
-  // right-drag (or two fingers) to slide. The camera stays inside the room's walls,
-  // but can rise through the ceiling to look down on the whole room.
   const controls = new OrbitControls(camera, canvas);
   controls.target.set(0, 1.18, 0);
   controls.enableDamping = true;
-  controls.screenSpacePanning = true;
-  controls.minDistance = 0.6;
-  controls.maxDistance = 16;
-  controls.minPolarAngle = 0.02;
-  controls.maxPolarAngle = 1.72;
   controls.update();
-  const VIEWS = {
-    twin: { position: camera.position.clone(), target: controls.target.clone() },
-    room: { position: new THREE.Vector3(0, 15, 3.0), target: new THREE.Vector3(0, 0, 0.55) },
-  };
-  const INSIDE = { left: ROOM.left + 0.15, right: ROOM.right - 0.15, back: ROOM.back + 0.15, front: ROOM.front - 0.15 };
-  let flight = null; // { position, target } the camera is gliding to
-  controls.addEventListener('start', () => (flight = null)); // you took over
-  function view(name) {
-    flight = VIEWS[name] ?? null;
+
+  // Two ways to look. "twin": facing the twin, and you can only turn around it
+  // (drag); the camera stops short of the walls and ceiling. "room": looking down
+  // on the whole room from above, where you can turn and zoom. Switching glides
+  // between them, and the view out the window is hidden from above, where it
+  // would be a picture floating in the dark.
+  const TWIN = { target: controls.target.clone(), distance: camera.position.distanceTo(controls.target), polar: 0, azimuth: 0 };
+  {
+    const s = new THREE.Spherical().setFromVector3(camera.position.clone().sub(TWIN.target));
+    TWIN.polar = s.phi;
+    TWIN.azimuth = s.theta;
   }
-  // Keeps the camera in the room and says whether it's away from the usual view.
-  let away = false;
-  function steady(dt) {
+  const ROOM_VIEW = { target: new THREE.Vector3(0, 0, (ROOM.back + ROOM.front) / 2 - 0.35), distance: 16 * Math.max(1, 1 / Math.sqrt(startAspect)), polar: 0.12, azimuth: 0 };
+  const LIMITS = {
+    twin: { rotate: true, zoom: false, pan: false, minPolar: 1.0, maxPolar: 1.72, minDistance: 0.3, maxDistance: TWIN.distance },
+    room: { rotate: true, zoom: true, pan: false, minPolar: 0, maxPolar: 0.6, minDistance: 7, maxDistance: ROOM_VIEW.distance * 1.15 },
+  };
+  let mode = 'twin';
+  function applyLimits(name) {
+    const l = LIMITS[name];
+    controls.enableRotate = l.rotate;
+    controls.enableZoom = l.zoom;
+    controls.enablePan = l.pan;
+    controls.minPolarAngle = l.minPolar;
+    controls.maxPolarAngle = l.maxPolar;
+    controls.minDistance = l.minDistance;
+    controls.maxDistance = l.maxDistance;
+  }
+  applyLimits('twin');
+
+  // Keeps the camera inside the room: on the line from what it's looking at, it
+  // stops short of a wall, the ceiling or the floor, without losing its direction,
+  // so turning back the other way moves it out to its full distance again.
+  const INSIDE = { left: ROOM.left + 0.15, right: ROOM.right - 0.15, back: ROOM.back + 0.15, front: ROOM.front - 0.15, floor: 0.2, ceiling: ROOM.height - 0.12 };
+  function keepInside(target, direction, distance) {
+    let t = distance;
+    const room = [['x', INSIDE.left, INSIDE.right], ['y', INSIDE.floor, INSIDE.ceiling], ['z', INSIDE.back, INSIDE.front]];
+    for (const [axis, lo, hi] of room) {
+      const d = direction[axis];
+      if (d > 1e-6) t = Math.min(t, (hi - target[axis]) / d);
+      else if (d < -1e-6) t = Math.min(t, (lo - target[axis]) / d);
+    }
+    return Math.max(0.3, t);
+  }
+
+  // The glide between the two: eased in and out over about a second and a half,
+  // along a curve rather than a straight line.
+  const FLIGHT_SECONDS = 1.6;
+  let flight = null;
+  const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+  function view(name) {
+    if (!LIMITS[name] || (name === mode && !flight)) return;
+    const to = name === 'room' ? ROOM_VIEW : TWIN;
+    // Finish any leftover drift from a drag first, so it can't nudge the landing.
+    controls.enableDamping = false;
+    controls.update();
+    controls.enableDamping = true;
+    const from = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
+    let turn = to.azimuth - from.theta;
+    turn = Math.atan2(Math.sin(turn), Math.cos(turn)); // the short way round
+    flight = { name, t: 0, fromTarget: controls.target.clone(), toTarget: to.target, from, to, turn };
+    mode = name;
+    controls.enabled = false;
+    canvas.dispatchEvent(new CustomEvent('viewchange', { detail: { mode } }));
+  }
+
+  const offset = new THREE.Vector3();
+  const spherical = new THREE.Spherical();
+  function moveCamera(dt) {
     if (flight) {
-      const k = Math.min(1, dt * 4);
-      camera.position.lerp(flight.position, k);
-      controls.target.lerp(flight.target, k);
-      if (camera.position.distanceTo(flight.position) < 0.01 && controls.target.distanceTo(flight.target) < 0.01) flight = null;
+      flight.t = Math.min(1, flight.t + dt / FLIGHT_SECONDS);
+      const { from, to, t } = flight;
+      // Going up, it rises before pulling back; coming down, it closes in before
+      // dropping, so it never swings out through a wall.
+      const early = ease(Math.min(1, t * 1.6));
+      const k = ease(t);
+      const [rise, reach] = flight.name === 'room' ? [early, k] : [k, early];
+      controls.target.lerpVectors(flight.fromTarget, flight.toTarget, k);
+      spherical.set(from.radius + (to.distance - from.radius) * reach, from.phi + (to.polar - from.phi) * rise, from.theta + flight.turn * k);
+      camera.position.copy(controls.target).add(offset.setFromSpherical(spherical));
+      // Inside the walls while below the ceiling; above it, the limit fades out
+      // smoothly instead of letting go all at once.
+      const extra = Math.max(0, camera.position.y - ROOM.height) * 6;
+      const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+      camera.position.x = clamp(camera.position.x, INSIDE.left - extra, INSIDE.right + extra);
+      camera.position.z = clamp(camera.position.z, INSIDE.back - extra, INSIDE.front + extra);
+      camera.position.y = Math.max(INSIDE.floor, camera.position.y);
+      camera.lookAt(controls.target);
+      if (flight.t >= 1) {
+        flight = null;
+        applyLimits(mode);
+        controls.enabled = true;
+        controls.update();
+      }
+    } else {
+      controls.update();
+      if (mode === 'twin') {
+        controls.target.copy(TWIN.target);
+        const direction = camera.position.clone().sub(TWIN.target).normalize();
+        camera.position.copy(TWIN.target).addScaledVector(direction, keepInside(TWIN.target, direction, TWIN.distance));
+      }
     }
-    const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-    controls.target.set(clamp(controls.target.x, INSIDE.left, INSIDE.right), clamp(controls.target.y, 0, ROOM.height), clamp(controls.target.z, INSIDE.back, INSIDE.front));
-    camera.position.set(clamp(camera.position.x, INSIDE.left, INSIDE.right), clamp(camera.position.y, 0.2, 16), clamp(camera.position.z, INSIDE.back, INSIDE.front));
-    const now = camera.position.distanceTo(VIEWS.twin.position) > 0.3 || controls.target.distanceTo(VIEWS.twin.target) > 0.3;
-    if (now !== away) {
-      away = now;
-      canvas.dispatchEvent(new CustomEvent('viewchange', { detail: { away } }));
-    }
+    // The sky and view outside are only seen through the window, from inside.
+    const inside = camera.position.y < ROOM.height;
+    for (const mesh of house?.outside ?? []) mesh.visible = inside;
   }
 
   // Decorate state (see the bottom of this function).
@@ -118,8 +188,7 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
         .addScaledVector(new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion), y);
       vrm.update(dt);
     }
-    controls.update();
-    steady(dt);
+    moveCamera(dt);
     renderer.render(scene, camera);
   });
 
@@ -211,7 +280,7 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
     if (!drag) return;
     const { id, item, from } = drag;
     drag = null;
-    controls.enabled = true;
+    controls.enabled = !flight;
     if (`${item.x},${item.z},${item.y},${item.wall}` === from) return; // just a click: nothing moved
     const round = (v) => Math.round(v * 100) / 100;
     callbacks.onMove?.(id, { x: round(item.x), z: round(item.z), y: round(item.y), wall: item.wall });
@@ -226,7 +295,7 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
     highlight(on ? selected : null);
   }
 
-  return { setHouse, setPresent, setDecorating, select: highlight, view, loaded };
+  return { setHouse, setPresent, setDecorating, select: highlight, view, get mode() { return mode; }, loaded };
 }
 
 async function loadAvatar(url, onProgress) {

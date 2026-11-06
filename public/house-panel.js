@@ -133,7 +133,7 @@ export function createHousePanel({ button, panel, initial, stage, onChange, onSe
         : null;
     return h('div', { class: 'stack' },
       pinned,
-      h('p', { class: 'house-help' }, 'Everything in the room can be moved, the sofa, TV, rug and pictures too: click a thing, then drag it. Wall things slide along any wall. Drag empty space to look around, scroll to zoom, right-drag to slide.'),
+      h('p', { class: 'house-help' }, 'Everything in the room can be moved, the sofa, TV, rug and pictures too: click a thing, then drag it. Wall things slide along any wall. Drag empty space to turn the view. To see everything, use See the whole room, where you can also scroll to zoom.'),
       h('div', { class: 'row-buttons' },
         h('button', { type: 'button', class: 'small', onclick: () => stage.view('room') }, 'See the whole room'),
         h('button', { type: 'button', class: 'small', onclick: () => stage.view('twin') }, 'Back to the twin')),

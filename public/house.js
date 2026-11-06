@@ -174,7 +174,8 @@ export function buildHouse(config) {
 
   // What's outside.
   const sky = texture(2048, 1024, (ctx, w, h) => drawOutside(ctx, w, h, phase, look, config.view, seeded(99)));
-  add(new THREE.PlaneGeometry(20, 10), new THREE.MeshBasicMaterial({ map: sky, toneMapped: false }), [-1, 2.2, -8], { cast: false });
+  const outside = [];
+  outside.push(add(new THREE.PlaneGeometry(20, 10), new THREE.MeshBasicMaterial({ map: sky, toneMapped: false }), [-1, 2.2, -8], { cast: false }));
   if (config.outsideImage) {
     // Your own picture as the view: a big print a few metres behind the window, tinted
     // for the time of day so a sunny photo still looks right at night.
@@ -186,6 +187,7 @@ export function buildHouse(config) {
       view.geometry = new THREE.PlaneGeometry(Math.max(9, 6 / aspect), Math.max(9, 6 / aspect) * aspect);
     });
     view.material.needsUpdate = true;
+    outside.push(view);
   }
 
   if (config.curtains) {
@@ -289,6 +291,7 @@ export function buildHouse(config) {
     exposure: look.exposure,
     environmentIntensity: look.env,
     items, // id -> the placed thing's group, for dragging
+    outside, // the sky and the view, only seen through the window
     surfaces: { floor: floorMesh, back: backWall, left: leftWall, right: rightWall },
     dispose() {
       group.traverse((o) => {

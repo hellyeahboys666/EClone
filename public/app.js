@@ -83,7 +83,10 @@ async function init() {
   // Camera: look down on the whole room, or go back to facing the twin.
   els.viewRoom.addEventListener('click', () => stage.view('room'));
   els.viewTwin.addEventListener('click', () => stage.view('twin'));
-  els.canvas.addEventListener('viewchange', (event) => (els.viewTwin.hidden = !event.detail.away));
+  els.canvas.addEventListener('viewchange', (event) => {
+    els.viewRoom.hidden = event.detail.mode === 'room';
+    els.viewTwin.hidden = event.detail.mode !== 'room';
+  });
 
   createHousePanel({ button: els.houseButton, panel: els.housePanel, initial: config.house, stage, onChange: stage.setHouse, onSettled: reactToHouse });
   setPresent = stage.setPresent;

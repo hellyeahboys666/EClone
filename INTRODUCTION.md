@@ -87,7 +87,7 @@ The prompt goes in on stdin. The reply comes back in one piece through its JSON 
 | `public/house-config.js` | The House settings: each option, the defaults, and the cleaner that keeps only valid values (used by both the page and the server). |
 | `public/house-panel.js` | The House panel (the **House** button at the top). Changes show right away and are saved to `house.json`. |
 | `house.json` | Saved House settings. Not private. |
-| `public/scene.js` | The three.js stage (a free camera that turns all the way around, zooms and slides but stays inside the walls, rising through the ceiling for the **Whole room** view; tone mapping; reflections), loading the VRM avatar, idle motion, blinking, mood expressions, body language (eyes that glance away now and then, a look up and aside while thinking, nods while listening, a droop when low), and the mouth driven by audio loudness. |
+| `public/scene.js` | The three.js stage (two camera views: facing the twin, where you can only turn around it and the camera stops at the walls, and **Whole room** from above, where you can turn and zoom, with a smooth glide between them and the outside hidden from above; tone mapping; reflections), loading the VRM avatar, idle motion, blinking, mood expressions, body language (eyes that glance away now and then, a look up and aside while thinking, nods while listening, a droop when low), and the mouth driven by audio loudness. |
 | `public/style.css` | Page styles. |
 | `.env` | Settings and API keys. **Secret, never share or print.** `.env.example` is the template. |
 | `README.md` | Setup and how to make the twin your own. |
