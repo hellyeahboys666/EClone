@@ -11,6 +11,7 @@ export function createVoicePanel({ button, panel, onChange, onOpen }) {
   let message = { text: '', error: false };
   let preview = null; // the Audio playing a preview or a try
   let changingKey = false; // showing the key field although a key is saved
+  let target = 'main'; // what the chosen voice is for: the main voice, or a language code
 
   function h(tag, props = {}, ...children) {
     const el = document.createElement(tag);
@@ -27,6 +28,7 @@ export function createVoicePanel({ button, panel, onChange, onOpen }) {
 
   const keyInput = h('input', { type: 'password', id: 'voice-key', autocomplete: 'off', spellcheck: false });
   const modelSelect = h('select', { id: 'voice-model' });
+  const languageName = (code) => (state?.languageList.find(([c]) => c === code)?.[1] ?? code).replace(/\s*\(.*\)$/, '');
 
   async function call(url, body) {
     const response = await fetch(url, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
@@ -70,7 +72,8 @@ export function createVoicePanel({ button, panel, onChange, onOpen }) {
     busy = 'try';
     say('Speaking…');
     try {
-      const blob = await (await call('/api/voice/try', { key: keyInput.value, voiceId: chosen.id, model: modelSelect.value })).blob();
+      const lang = target === 'main' ? state.mainLanguage : target;
+      const blob = await (await call('/api/voice/try', { key: keyInput.value, voiceId: chosen.id, model: modelSelect.value, lang })).blob();
       busy = '';
       play(URL.createObjectURL(blob));
       say('Like it? Save it to use it.');
@@ -80,7 +83,7 @@ export function createVoicePanel({ button, panel, onChange, onOpen }) {
     }
   }
 
-  async function save(body) {
+  async function save(body, done) {
     busy = 'save';
     render();
     try {
@@ -89,7 +92,7 @@ export function createVoicePanel({ button, panel, onChange, onOpen }) {
       changingKey = false;
       busy = '';
       onChange?.(state);
-      say(state.using === 'elevenlabs' ? `Saved. ${state.voiceName || 'This voice'} is the clone's voice now.` : 'Switched to the Mac voice. Your ElevenLabs key is still saved.');
+      say(done ?? (state.using === 'elevenlabs' ? `Saved. ${state.voiceName || 'This voice'} is the clone's voice now.` : 'Switched to the Mac voice. Your ElevenLabs key is still saved.'));
     } catch (err) {
       busy = '';
       say(err.message, true);
@@ -134,6 +137,7 @@ export function createVoicePanel({ button, panel, onChange, onOpen }) {
       h('div', { class: 'house-head' }, h('h2', {}, 'Voice'), h('button', { type: 'button', class: 'house-close', onclick: () => toggle(false) }, 'Close')),
       h('div', { class: 'card stack' },
         h('p', { class: 'voice-now' }, 'Speaking with: ', h('strong', {}, using ? `${state.voiceName || 'an ElevenLabs voice'} (ElevenLabs, ${modelName})` : state.macWorks ? "this Mac's built-in voice" : 'no voice (text only)')),
+        using ? languagesCard() : null,
         using && state.macWorks ? h('button', { type: 'button', class: 'small', disabled: Boolean(busy), onclick: () => save({ use: 'mac' }) }, 'Use the Mac voice instead') : null),
       h('div', { class: 'stack voice-steps' },
         showKey
@@ -154,15 +158,50 @@ export function createVoicePanel({ button, panel, onChange, onOpen }) {
         chosen
           ? [
               h('p', { class: 'voice-chosen' }, 'Chosen: ', h('strong', {}, chosen.name)),
+              using ? targetPicker() : null,
               h('div', { class: 'voice-actions' },
-                h('button', { type: 'button', disabled: Boolean(busy), title: 'Says one line in this voice (uses a few ElevenLabs credits)', onclick: tryVoice }, busy === 'try' ? 'Speaking…' : 'Try it'),
-                h('button', { type: 'button', class: 'primary', disabled: Boolean(busy), onclick: () => save({ key: keyInput.value, voiceId: chosen.id, voiceName: chosen.name, model: modelSelect.value }) }, busy === 'save' ? 'Saving…' : 'Save and use it')),
+                h('button', { type: 'button', disabled: Boolean(busy), title: 'Says one line in this voice, in that language (uses a few ElevenLabs credits)', onclick: tryVoice }, busy === 'try' ? 'Speaking…' : 'Try it'),
+                h('button', { type: 'button', class: 'primary', disabled: Boolean(busy), onclick: saveChosen },
+                  busy === 'save' ? 'Saving…' : target === 'main' || !using ? 'Save and use it' : `Use for ${languageName(target)}`)),
             ]
           : null,
         h('p', { class: `house-status${message.error ? ' error' : ''}`, role: 'status' }, message.text)),
     );
     const list = panel.querySelector('.voice-list');
     if (list) list.scrollTop = listScroll;
+  }
+
+  // Main voice's language, and one more voice for each other language they speak.
+  function languagesCard() {
+    const main = h('select', { 'aria-label': 'Language of the main voice', disabled: Boolean(busy), onchange: () => save({ action: 'mainLanguage', lang: main.value }, `The main voice is for ${languageName(main.value)}.`) });
+    for (const [code, name] of state.languageList) main.add(new Option(name, code, false, code === state.mainLanguage));
+    const extra = state.languages.filter((v) => v.lang !== state.mainLanguage);
+    return h('div', { class: 'stack voice-langs' },
+      h('div', { class: 'voice-lang-row' }, h('span', {}, 'Main voice speaks'), main),
+      extra.map((v) => h('div', { class: 'voice-lang-row' },
+        h('span', {}, `${languageName(v.lang)}: `, h('strong', {}, v.voiceName || 'a voice')),
+        h('button', { type: 'button', class: 'small', 'aria-label': `Remove the ${languageName(v.lang)} voice`, title: `Remove the ${languageName(v.lang)} voice`, disabled: Boolean(busy), onclick: () => save({ action: 'removeLanguage', lang: v.lang }, `Removed the ${languageName(v.lang)} voice. The main voice says those sentences now.`) }, '✕'))),
+      h('p', { class: 'house-help' }, extra.length
+        ? 'Each sentence is said in the voice for its language; anything else uses the main voice.'
+        : 'Speaks more than one language? Pick a voice below, choose the language, and add it. Each sentence then uses the voice for its language.'));
+  }
+
+  // What the chosen voice will be: the main voice, or the voice for one language.
+  function targetPicker() {
+    const select = h('select', { 'aria-label': 'Use the chosen voice for', onchange: () => { target = select.value; render(); } });
+    select.add(new Option('As the main voice', 'main', false, target === 'main'));
+    for (const [code, name] of state.languageList) {
+      if (code === state.mainLanguage) continue;
+      const has = state.languages.some((v) => v.lang === code);
+      select.add(new Option(`For ${name}${has ? ' (replaces the current one)' : ''}`, code, false, target === code));
+    }
+    return select;
+  }
+
+  function saveChosen() {
+    const voice = { key: keyInput.value, voiceId: chosen.id, voiceName: chosen.name, model: modelSelect.value };
+    if (target === 'main' || state.using !== 'elevenlabs') return save(voice);
+    save({ action: 'addLanguage', lang: target, ...voice }, `Saved. ${chosen.name} says the ${languageName(target)} sentences now.`);
   }
 
   function toggle(open = panel.hidden) {

@@ -12,6 +12,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { createMemory, formatTime, loadJson, saveJson } from './memory.js';
 import { updateEnvFile } from './env-file.js';
+import { LANGUAGES, LANGUAGE_CODES, detectLanguage } from './languages.js';
 import {
   KINDS, NOTE_PLAN, NOTE_SCHEMA, FINDINGS_SCHEMA, SCORE_SCHEMA,
   chunks, describeStyle, examplesNote, exchanges, findingsFor, measureStyle, parseSource, pickExchanges, speakers, wordCount,
@@ -70,6 +71,8 @@ const config = {
   elevenVoiceName: process.env.ELEVENLABS_VOICE_NAME || '',
   elevenModel: process.env.ELEVENLABS_MODEL || 'eleven_flash_v2_5',
   macVoice: process.env.MAC_VOICE || '',
+  // More ElevenLabs voices, one per language, for a clone that speaks several (private).
+  voicesFile: path.resolve(ROOT, process.env.VOICES_FILE || 'voices.json'),
 };
 // The voice can be changed from the page (the Voice panel) while the clone is running.
 const useElevenLabs = () => Boolean(config.elevenKey && config.elevenVoice);
@@ -1347,8 +1350,31 @@ function elevenKeyFrom(body) {
   return key;
 }
 
+// The main voice's language and the extra voices: { mainLanguage, languages: [{ lang, voiceId, voiceName, model }] }.
+let voiceLanguages = cleanVoiceLanguages(await loadJson(config.voicesFile, {}).catch(() => ({})));
+function cleanVoiceLanguages(input) {
+  const seen = new Set();
+  const languages = (Array.isArray(input?.languages) ? input.languages : [])
+    .filter((v) => LANGUAGE_CODES.has(v?.lang) && ELEVEN_ID.test(v?.voiceId ?? '') && !seen.has(v.lang) && seen.add(v.lang))
+    .map((v) => ({ lang: v.lang, voiceId: v.voiceId, voiceName: String(v.voiceName ?? '').slice(0, 80), model: ELEVEN_MODEL.test(v.model ?? '') ? v.model : '' }));
+  return { mainLanguage: LANGUAGE_CODES.has(input?.mainLanguage) ? input.mainLanguage : 'en', languages };
+}
+
+// Which voice says this sentence: the one for its language, or the main voice.
+function voiceFor(text) {
+  const { mainLanguage, languages } = voiceLanguages;
+  const extra = languages.filter((v) => v.lang !== mainLanguage);
+  if (!extra.length) return {};
+  const lang = detectLanguage(text, [mainLanguage, ...extra.map((v) => v.lang)]);
+  const match = extra.find((v) => v.lang === lang);
+  return match ? { voice: match.voiceId, model: match.model || config.elevenModel } : {};
+}
+
 function voiceState() {
   return {
+    mainLanguage: voiceLanguages.mainLanguage,
+    languages: voiceLanguages.languages,
+    languageList: LANGUAGES.map(({ code, name }) => [code, name]),
     using: useElevenLabs() ? 'elevenlabs' : 'mac',
     hasKey: Boolean(config.elevenKey), // the key itself never goes to the page
     voiceId: config.elevenVoice,
@@ -1393,7 +1419,8 @@ async function handleVoiceTry(req, res) {
   const voice = String(body.voiceId ?? '');
   const model = ELEVEN_MODEL.test(body.model ?? '') ? body.model : config.elevenModel;
   if (!ELEVEN_ID.test(voice)) return sendJson(res, 400, { error: 'Pick a voice first.' });
-  const text = String(body.text ?? '').trim().slice(0, 200) || `Hey, it's ${config.name}. Does this sound like me?`;
+  const sample = (LANGUAGES.find((l) => l.code === body.lang) ?? LANGUAGES[0]).sample.replace('{name}', config.name);
+  const text = String(body.text ?? '').trim().slice(0, 200) || sample;
   const { audio, type } = await elevenLabsSpeech(text, { key, voice, model });
   res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
   res.end(audio);
@@ -1403,6 +1430,7 @@ async function handleVoiceTry(req, res) {
 // back to the Mac voice (the key stays saved, so switching back is one click).
 async function handleVoiceSave(req, res) {
   const body = await readJson(req);
+  if (['addLanguage', 'removeLanguage', 'mainLanguage'].includes(body.action)) return handleVoiceLanguage(body, res);
   if (body.use === 'mac') {
     config.elevenVoice = '';
     updateEnvFile(ENV_FILE, { ELEVENLABS_VOICE_ID: '' }, { fallback: path.join(ROOT, '.env.example') });
@@ -1415,6 +1443,29 @@ async function handleVoiceSave(req, res) {
   const name = String(body.voiceName ?? '').replace(/[\r\n#=]/g, ' ').trim().slice(0, 80);
   updateEnvFile(ENV_FILE, { ELEVENLABS_API_KEY: key, ELEVENLABS_VOICE_ID: voice, ELEVENLABS_VOICE_NAME: name, ELEVENLABS_MODEL: model }, { fallback: path.join(ROOT, '.env.example') });
   Object.assign(config, { elevenKey: key, elevenVoice: voice, elevenVoiceName: name, elevenModel: model });
+  sendJson(res, 200, voiceState());
+}
+
+// Extra voices for other languages: each sentence in that language is said in its voice.
+async function handleVoiceLanguage(body, res) {
+  const next = structuredClone(voiceLanguages);
+  if (!LANGUAGE_CODES.has(body.lang)) return sendJson(res, 400, { error: 'Pick a language.' });
+  if (body.action === 'mainLanguage') next.mainLanguage = body.lang;
+  else if (body.action === 'removeLanguage') next.languages = next.languages.filter((v) => v.lang !== body.lang);
+  else {
+    const key = elevenKeyFrom(body);
+    const voice = String(body.voiceId ?? '');
+    if (!ELEVEN_ID.test(voice)) return sendJson(res, 400, { error: 'Pick a voice first.' });
+    if (!config.elevenVoice) return sendJson(res, 400, { error: 'Save a main voice first, then add voices for other languages.' });
+    if (key !== config.elevenKey) {
+      updateEnvFile(ENV_FILE, { ELEVENLABS_API_KEY: key }, { fallback: path.join(ROOT, '.env.example') });
+      config.elevenKey = key;
+    }
+    const entry = { lang: body.lang, voiceId: voice, voiceName: String(body.voiceName ?? '').trim().slice(0, 80), model: ELEVEN_MODEL.test(body.model ?? '') ? body.model : config.elevenModel };
+    next.languages = [...next.languages.filter((v) => v.lang !== body.lang), entry];
+  }
+  voiceLanguages = cleanVoiceLanguages(next);
+  await saveJson(config.voicesFile, voiceLanguages);
   sendJson(res, 200, voiceState());
 }
 
@@ -1446,7 +1497,7 @@ async function handleTts(req, res) {
   const clean = String(text ?? '').trim().slice(0, 1500);
   if (!clean) return sendJson(res, 400, { error: 'No text to speak.' });
   try {
-    const { audio, type } = useElevenLabs() ? await elevenLabsSpeech(clean) : await macSpeech(clean);
+    const { audio, type } = useElevenLabs() ? await elevenLabsSpeech(clean, voiceFor(clean)) : await macSpeech(clean);
     res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
     res.end(audio);
   } catch (err) {

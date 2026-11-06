@@ -526,12 +526,15 @@ async function checkDraft() {
 
 // Index just past the first sentence end that leaves a chunk long enough to
 // sound natural on its own, or 0 if there isn't one yet.
+// Chinese, Japanese and similar end sentences with 。！？ and no space, and pack more
+// into each character, so a shorter chunk is enough there.
 function sentenceEnd(text) {
-  const re = /[.!?…]+["'”’)\]]*\s+/g;
+  const re = /[.!?…]+["'”’)\]]*\s+|[。！？]+[”’」』）]*\s*/g;
   let m;
   while ((m = re.exec(text))) {
     const end = m.index + m[0].length;
-    if (end >= 24) return end;
+    const wide = /[。！？]/.test(m[0]);
+    if (end >= (wide ? 10 : 24)) return end;
   }
   return 0;
 }

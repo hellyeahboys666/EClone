@@ -308,3 +308,7 @@ a.chip { text-decoration: none; }
 }
 .voice-footer .house-status { margin: 0; }
 .voice-footer .house-status:empty { display: none; }
+.voice-langs { gap: 6px; }
+.voice-lang-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.voice-lang-row select { max-width: 160px; }
+.voice-footer select { width: 100%; }

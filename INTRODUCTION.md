@@ -65,6 +65,7 @@ you ──text/speech──▶ browser (public/) ──▶ server.js ──▶ G
 | `Start EClone.command` | Double-click launcher for Mac. It installs if needed, runs setup the first time, starts the clone and opens the browser, or just opens the browser if the clone is already running. |
 | `persona-template/` | The starting persona: a writing guide with 15 interview questions, and four fill-in notes marked "(replace this)". |
 | `public/mind.html`, `mind.js`, `mind.css` | The Mind page (`/mind`).<br>• Edit, add and delete persona notes, and edit `rules.md`.<br>• Search, edit, add and forget memories, change their importance, or forget everything.<br>• Reset the mood, or clear the chat without remembering it.<br>Changes go through `POST /api/mind`, so they're safe while the clone runs and memories are forming. |
+| `languages.js` | The languages a clone can have a voice for (with a sample line each), and working out which language a sentence is in: by writing system (Chinese, Japanese, Korean, Cyrillic, Arabic...) or, for Latin-alphabet languages, by common words. |
 | `persona-builder.js` | Building the persona from sources: reads chat exports (WhatsApp, Discord, Instagram/Messenger, Telegram, CSV, transcripts) and plain text, counts how the person texts, picks real example exchanges and a held-out test set, cuts the material into pieces for the AI. No network. |
 | `public/mind-build.js` | The **Build from everything** tab: consent, adding sources, analyze with progress, review and use the drafted notes, accuracy test results. |
 | `memory.js` | The clone's memory: saving the conversation, forming memories and impressions, recall by meaning, fading, and token counts. |
@@ -79,6 +80,7 @@ The prompt goes in on stdin. The reply comes back in one piece through its JSON 
 | `rules.md` | General behavior rules for any clone (how to talk, time and memory, having opinions, honesty). Re-read on every message. |
 | `persona/` | Notes about the person: who they are, how they talk, their opinions. Re-read on every message. **Private.** |
 | `persona-backups/` | Earlier copies of the persona notes (made before built notes replace them). **Private.** |
+| `voices.json` | The main voice's language and the extra ElevenLabs voice for each other language. **Private.** |
 | `sources/` | Everything added on **Build from everything**: each source as given, `index.json` (the list, consent, who is who in chats) and `analysis.json` (drafted notes, measured style, held-out test exchanges, accuracy tests). **Private.** |
 | `memory/` | The clone's memory files (created automatically). **Private.** |
 | `avatar/` | Put a `.vrm` or `.glb` avatar here to replace the sample one. **Private.** |
@@ -177,6 +179,7 @@ Every write goes to a temporary file first and is then renamed into place, so a 
 | `GET /api/sources` | Sources, consent, the running analysis or test, the drafted notes and accuracy tests. |
 | `POST /api/sources` `{ action, ... }` | `consent`, `add` `{ name, text, kind }`, `update` `{ id, kind or speaker }`, `remove`, `analyze` (background), `apply` `{ drafts }` (backs up, then writes the notes), `test` (background accuracy test). |
 | `POST /api/voice` `{ key?, voiceId, voiceName, model }` or `{ use: 'mac' }` | Saves the voice to `.env` and uses it right away, or switches back to the Mac voice. |
+| `POST /api/voice` `{ action: 'addLanguage' \| 'removeLanguage' \| 'mainLanguage', lang, ... }` | A voice for another language (saved in `voices.json`), or which language the main voice speaks. `POST /api/tts` then picks the voice by each sentence's language. |
 | `GET /api/conversation` | The current conversation, used to redraw the chat after a refresh. |
 | `POST /api/new-chat` | Forms memories from this conversation, then starts a fresh one. |
 | `GET /api/mind`, `POST /api/mind` `{ action, ... }` | The Mind page. `GET` returns the persona notes, rules, memories, mood and chat length. `POST` actions are `savePersona`, `deletePersona`, `saveRules`, `addMemory`, `updateMemory`, `deleteMemory`, `forgetAll`, `resetMood` and `clearConversation`. Note names must be simple `.md` names, so they can't reach outside `persona/`. |
@@ -199,6 +202,7 @@ Every write goes to a temporary file first and is then renamed into place, so a 
 | `FALLBACK_MODEL`, `FALLBACK_AFTER_SECONDS` | Backup model (default `gpt-5.4-mini`; a name starting with `claude` uses Claude; `none` turns it off). It answers when the main model fails or hasn't started answering after 20 seconds, and also forms memories and decides about speaking first if the main model fails. The page shows a note when it answered, and the Brain chip's tooltip names it. |
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_VOICE_NAME`, `ELEVENLABS_MODEL` | Cloned voice, filled in by the **Voice** chip. Leave them blank to use the Mac voice. |
 | `ENV_FILE` | Use a different settings file than `.env` (for testing). |
+| `VOICES_FILE` | Where the per-language voices are kept (default `voices.json`). |
 | `SOURCES_DIR`, `PERSONA_BACKUPS_DIR` | Where the build sources and the persona backups are kept (default `sources/`, `persona-backups/`). |
 | `MAC_VOICE` | A voice name from `say -v '?'` |
 | `CLONE_NAME` | The name shown on the page |

@@ -4,6 +4,7 @@ node_modules/
 persona/
 persona-backups/
 sources/
+voices.json
 memory/
 avatar/*
 !avatar/.gitkeep
