@@ -1,4 +1,4 @@
-/* The Mind page: a normal scrolling page in the same dark style as the twin. */
+/* The Mind page: a normal scrolling page in the same dark style as the clone. */
 html, body.mind-page { overflow: auto; height: auto; }
 body.mind-page { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
 

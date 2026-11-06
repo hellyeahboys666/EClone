@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Health check: npm run check   (add -- --offline to skip testing the keys)
-// Goes through everything the twin needs and says how to fix what's missing.
+// Goes through everything the clone needs and says how to fix what's missing.
 // Prints counts only, never keys, persona text or memories.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -24,7 +24,7 @@ const readJson = (file) => {
   }
 };
 
-console.log('\nChecking the digital twin...\n');
+console.log('\nChecking the digital clone...\n');
 
 const [major, minor] = process.versions.node.split('.').map(Number);
 if (major > 20 || (major === 20 && minor >= 12)) ok(`Node ${process.versions.node}`);
@@ -57,7 +57,7 @@ if (brain === 'chatgpt') {
 if (!existsSync(envFile) || brain === 'chatgpt') {
   // Nothing to check until setup has written .env.
 } else if (!env[keyName] && !(brain === 'claude' && env.ANTHROPIC_AUTH_TOKEN)) {
-  fail(`Brain is ${brain}, but ${keyName} is empty, so the twin is in demo mode`, 'npm run setup');
+  fail(`Brain is ${brain}, but ${keyName} is empty, so the clone is in demo mode`, 'npm run setup');
 } else if (offline) ok(`Brain: ${brain} (${brain === 'openai' ? env.OPENAI_MODEL || 'gpt-5.4' : env.CLAUDE_MODEL || 'claude-opus-5-5'}), key not tested (--offline)`);
 else {
   const url = brain === 'openai' ? 'https://api.openai.com/v1/models' : 'https://api.anthropic.com/v1/models';
@@ -93,7 +93,7 @@ else if (process.platform === 'darwin') {
 
 const personaDir = path.resolve(ROOT, env.PERSONA_DIR || 'persona');
 const notes = existsSync(personaDir) ? readdirSync(personaDir).filter((f) => f.endsWith('.md') && f !== 'README.md') : [];
-if (!notes.length) fail('No persona notes, so the twin doesn\'t know who it is', 'npm run setup (starts from the template), then fill them in on the Mind page');
+if (!notes.length) fail('No persona notes, so the clone doesn\'t know who it is', 'npm run setup (starts from the template), then fill them in on the Mind page');
 else {
   const unfinished = notes.filter((f) => readFileSync(path.join(personaDir, f), 'utf8').includes('(replace this)')).length;
   if (unfinished) warn(`${notes.length} persona notes, ${unfinished} still with template text "(replace this)"; fill them in on the Mind page`);
@@ -113,7 +113,7 @@ else ok(`Memory: ${memories?.length ?? 0} memories, ${conversation?.messages?.le
 const port = env.PORT || '4747';
 try {
   const res = await fetch(`http://localhost:${port}/api/config`, { signal: AbortSignal.timeout(2000) });
-  if (res.ok) ok(`The twin is running: http://localhost:${port}`);
+  if (res.ok) ok(`The clone is running: http://localhost:${port}`);
   else warn(`Something else answers on port ${port}; set PORT in .env to another number`);
 } catch {
   ok(`Not running right now. Start it with npm start, then open http://localhost:${port}`);

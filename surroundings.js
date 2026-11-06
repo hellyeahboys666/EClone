@@ -1,5 +1,5 @@
 // Puts the house (the House panel's settings, see public/house-config.js) into
-// words, so the twin knows the room it's standing in, and notices when something
+// words, so the clone knows the room it's standing in, and notices when something
 // changed since it last spoke, the way a person notices a repainted wall.
 import { CATALOG, WALL_STYLES, cleanHouse, phaseFor } from './public/house-config.js';
 
@@ -10,7 +10,7 @@ const OUTSIDE = { morning: 'early morning light', day: 'daylight', sunset: 'a su
 export function describeHouse(house, now = new Date()) {
   const phase = phaseFor(house.timeOfDay, now);
   const lit = house.lights === 'on' || (house.lights === 'auto' && (phase === 'sunset' || phase === 'night'));
-  // Left and right are the twin's own: it faces you, so your left is its right.
+  // Left and right are the clone's own: it faces you, so your left is its right.
   const things = house.items ?? [];
   const lines = [
     `You're standing in the middle of a living room with ${walls(house)} and ${FLOORS[house.floor]}, facing the person you're talking to.`,
@@ -87,7 +87,7 @@ function itemName(item) {
   return withArticle(`${size}${tint ? `${colorName(item.color)} ` : ''}${name}`);
 }
 
-// Roughly where a thing is, as the twin would say it. It stands in the middle of the
+// Roughly where a thing is, as the clone would say it. It stands in the middle of the
 // room (0, 0) facing the camera (+z), so -x is on its right and the back wall behind it.
 // The walls are named as you see them: your left wall is on its right.
 function where(item) {

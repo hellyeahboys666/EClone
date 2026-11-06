@@ -1,7 +1,7 @@
 #!/bin/zsh
-# Double-click to start the twin (Mac). The first time, it installs what's needed and
-# runs the setup questions. Then it starts the twin and opens it in your browser.
-# Close this window (or press Ctrl+C) to stop the twin.
+# Double-click to start the clone (Mac). The first time, it installs what's needed and
+# runs the setup questions. Then it starts the clone and opens it in your browser.
+# Close this window (or press Ctrl+C) to stop the clone.
 cd "${0:A:h}"
 
 if ! command -v node >/dev/null 2>&1; then
@@ -23,7 +23,7 @@ fi
 PORT=$(grep -E '^PORT=' .env | cut -d= -f2)
 PORT=${PORT:-4747}
 if curl -s -o /dev/null "http://localhost:$PORT/api/config"; then
-  echo "The twin is already running. Opening it..."
+  echo "The clone is already running. Opening it..."
   open "http://localhost:$PORT"
   exit 0
 fi

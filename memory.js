@@ -1,11 +1,11 @@
-// The twin's memory, kept as JSON files on this Mac (memory/ by default):
+// The clone's memory, kept as JSON files on this Mac (memory/ by default):
 //   conversation.json  the current conversation, word for word (short-term memory)
 //   memories.json      long-term memories formed from past conversation
 //   usage.json         token counts
 //   vectors.json       what each memory is about, as numbers, for recall by meaning
-//   (mood.json, the twin's current feeling, is kept by mood.js)
+//   (mood.json, the clone's current feeling, is kept by mood.js)
 //
-// It works loosely like a person's memory. While the twin is idle, new conversation
+// It works loosely like a person's memory. While the clone is idle, new conversation
 // is consolidated into short dated memories, and old ones are updated when things
 // change. Every so often it mulls them over and forms impressions. Each message
 // brings back the memories it relates to by meaning (so "my nan" finds the grandma
@@ -17,12 +17,12 @@ import path from 'node:path';
 
 const KEEP_MESSAGES = 100; // conversation kept word for word; older parts live on as memories
 const CONSOLIDATE_EVERY = 16; // new messages before memories form mid-conversation
-const IDLE_MS = 10 * 60_000; // quiet time before the twin "sleeps on" the conversation
+const IDLE_MS = 10 * 60_000; // quiet time before the clone "sleeps on" the conversation
 const RECALL_LIMIT = 15; // memories one moment can bring back, besides the core ones
 const CORE_IMPORTANCE = 9; // memories this important always come to mind
 const CORE_LIMIT = 10;
 const FADE_PER_HOUR = 0.995; // a memory not recalled for a week keeps about 40% of its pull
-const REFLECT_AFTER = 10; // new memories before the twin mulls things over again
+const REFLECT_AFTER = 10; // new memories before the clone mulls things over again
 const REFLECT_ON = 60; // how many recent memories it looks back over
 // Recall by meaning: a memory counts as related when it stands out from the rest for
 // this cue (in standard deviations). Small talk like "hey" never gets past about 2;
@@ -70,7 +70,7 @@ const MEMORY_SCHEMA = {
 
 function consolidationPrompt(name) {
   return (
-    `You form the long-term memories of ${name}, who talks with people as a digital twin. Read the new part of a ` +
+    `You form the long-term memories of ${name}, who talks with people as a digital clone. Read the new part of a ` +
     `conversation and decide what ${name} would remember, the way a person does after talking with a friend. Write ` +
     `each memory in ${name}'s first person ("Sam told me...", "I promised..."), one short sentence about one thing. ` +
     `Remember who they are and what they shared about themselves, plans and events, how they seemed, what we talked ` +
@@ -247,7 +247,7 @@ export function createMemory({ dir, name, completeJson, embed, onError, reflect:
     if (message.role === 'assistant' && pending() >= CONSOLIDATE_EVERY) consolidate().catch(() => {});
   }
 
-  // They talked over the twin: its last line counts only as far as it got, which is
+  // They talked over the clone: its last line counts only as far as it got, which is
   // as many words as the page had shown. (The words come from the saved line itself,
   // so nothing new can be put in its mouth.) Returns whether there was a line to cut.
   async function cutOffLastReply(shown) {
@@ -326,7 +326,7 @@ export function createMemory({ dir, name, completeJson, embed, onError, reflect:
     await vectorize().catch((err) => onError?.(err));
   }
 
-  // Every so often the twin mulls over its recent memories and forms impressions no
+  // Every so often the clone mulls over its recent memories and forms impressions no
   // single memory says ("I get the sense they're running on no sleep"), the way
   // people notice patterns. Impressions are memories too, so they're recalled the same way.
   async function reflect() {

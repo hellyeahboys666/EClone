@@ -1,4 +1,4 @@
-// The house the twin lives in: a living room with a real window (daylight, sunset
+// The house the clone lives in: a living room with a real window (daylight, sunset
 // or night outside, and the sun casting light through it), an open doorway into a
 // kitchen, and furniture. Built from simple shapes and textures drawn in code, so
 // there are no image files to download. buildHouse() takes the settings from the
@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { CATALOG, phaseFor } from './house-config.js';
 import { buildItem, pictureTexture } from './decor.js';
 
-// Living room bounds in meters. The twin stands at the origin facing the viewer (+z).
+// Living room bounds in meters. The clone stands at the origin facing the viewer (+z).
 export const ROOM = { left: -3.6, right: 3.6, back: -2.6, front: 4.6, height: 2.7 };
 const WALL = 0.15; // thickness of the back wall, which has the openings
 const WINDOW = { x0: -2.3, x1: -0.6, y0: 0.85, y1: 2.3 };
@@ -275,7 +275,7 @@ export function buildHouse(config) {
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.02;
   group.add(sun, sun.target);
-  // Soft light from the viewer's side, so the twin's face is never in the dark.
+  // Soft light from the viewer's side, so the clone's face is never in the dark.
   const fill = new THREE.DirectionalLight(lit ? 0xffdcb8 : 0xffffff, look.fill);
   fill.position.set(0.6, 2.2, 5);
   fill.target.position.set(0, 1.2, 0);

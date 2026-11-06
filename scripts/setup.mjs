@@ -94,7 +94,7 @@ async function elevenVoices(key) {
 }
 
 // ---- The steps -----------------------------------------------------------------
-console.log(`\n${bold('Digital twin setup')}\nPress Enter to keep the value in [brackets].\n`);
+console.log(`\n${bold('Digital clone setup')}\nPress Enter to keep the value in [brackets].\n`);
 
 console.log(bold('1. Node.js'));
 const [major, minor] = process.versions.node.split('.').map(Number);
@@ -119,8 +119,8 @@ else {
 const { text, values } = readEnv();
 const changes = {};
 
-console.log(bold('\n3. The twin'));
-changes.TWIN_NAME = await ask("Twin's name, shown on the page", values.TWIN_NAME || 'Twin');
+console.log(bold('\n3. The clone'));
+changes.CLONE_NAME = await ask("Clone's name, shown on the page", values.CLONE_NAME || values.TWIN_NAME || 'Clone');
 
 console.log(bold('\n4. The brain (an API key, or your ChatGPT sign-in)'));
 console.log('  openai: GPT. Get a key at https://platform.openai.com/api-keys (billed separately from ChatGPT).');
@@ -153,7 +153,7 @@ while (!key) {
   key = await askSecret(`Paste your ${brain === 'claude' ? 'Anthropic' : 'OpenAI'} API key${brain === 'chatgpt' ? ' (Enter to skip)' : ''}`);
   if (!key) {
     if (brain === 'chatgpt') break;
-    if (await yes('No key entered. Continue without one (the twin only echoes you in demo mode)?', 'n')) break;
+    if (await yes('No key entered. Continue without one (the clone only echoes you in demo mode)?', 'n')) break;
     continue;
   }
 }
@@ -169,11 +169,11 @@ else if (!values.OPENAI_API_KEY) warn('Without an OpenAI key there is no backup 
 
 console.log(bold('\n5. Voice'));
 const mac = process.platform === 'darwin';
-if (mac) console.log("  Without ElevenLabs, the twin uses this Mac's built-in voice.");
-else warn("This isn't a Mac, so the built-in voice won't work. Use ElevenLabs, or the twin will only show text.");
+if (mac) console.log("  Without ElevenLabs, the clone uses this Mac's built-in voice.");
+else warn("This isn't a Mac, so the built-in voice won't work. Use ElevenLabs, or the clone will only show text.");
 if (await yes('Set up an ElevenLabs cloned voice now?', values.ELEVENLABS_API_KEY ? 'y' : 'n')) {
   console.log('  Make the voice at https://elevenlabs.io under Voices (the person should record and agree to it themselves).');
-  console.log('  You can also do all of this later from the Voice chip on the twin\'s page.');
+  console.log('  You can also do all of this later from the Voice chip on the clone\'s page.');
   const eleven = (await askSecret('Paste your ElevenLabs API key (Enter keeps the saved one)')) || values.ELEVENLABS_API_KEY || '';
   changes.ELEVENLABS_API_KEY = eleven;
   const voices = eleven ? await elevenVoices(eleven) : { voices: [] };
@@ -204,7 +204,7 @@ writeEnv(text, changes);
 rl?.close();
 console.log(`\n${bold('Done.')} Settings saved to .env (only you can read it).\n`);
 const port = values.PORT || '4747';
-console.log(`Start the twin:   ${bold('npm start')}   then open ${bold(`http://localhost:${port}`)}`);
+console.log(`Start the clone:   ${bold('npm start')}   then open ${bold(`http://localhost:${port}`)}`);
 console.log(`Edit who it is:   the ${bold('Mind')} button on the page, or ${bold(`http://localhost:${port}/mind`)}`);
 console.log(`Check everything: ${bold('npm run check')}\n`);
 if (mac) {

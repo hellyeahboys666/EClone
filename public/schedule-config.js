@@ -1,5 +1,5 @@
-// The twin's weekly schedule: activities like work, school or sleep, each on some
-// days between two times. Shared by the server (what the twin is doing right now)
+// The clone's weekly schedule: activities like work, school or sleep, each on some
+// days between two times. Shared by the server (what the clone is doing right now)
 // and the Mind page (where you edit it). Saved in schedule.json.
 //
 // An activity: { id, name, note, days: ['mon', ...], start: '09:00', end: '17:00',
@@ -15,15 +15,33 @@ const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 export const PRESETS = [
   { name: 'Work', note: '', days: ['mon', 'tue', 'wed', 'thu', 'fri'], start: '09:00', end: '17:00', where: 'away', busy: true, notice: 10 },
   { name: 'School', note: '', days: ['mon', 'tue', 'wed', 'thu', 'fri'], start: '08:00', end: '15:00', where: 'away', busy: true, notice: 10 },
-  { name: 'Sleep', note: '', days: DAYS, start: '23:00', end: '07:00', where: 'home', busy: true, notice: 0 },
+  { name: 'Sleep', note: '', days: DAYS, start: '23:00', end: '07:00', where: 'home', busy: true, notice: 10 },
   { name: 'Gym', note: '', days: ['tue', 'thu'], start: '18:00', end: '19:30', where: 'away', busy: true, notice: 5 },
   { name: 'Homework', note: '', days: ['mon', 'tue', 'wed', 'thu'], start: '16:00', end: '18:00', where: 'home', busy: true, notice: 0 },
 ];
 
+// Everyone sleeps: a new schedule starts with this, and an older one gets it added
+// once (sleepAdded remembers that, so deleting it on the Mind page sticks).
+export const DEFAULT_SLEEP = { id: 'defaultsleep', name: 'Sleep', note: '', days: DAYS, start: '23:00', end: '07:00', where: 'home', busy: true, notice: 10 };
+
+// Whether an activity is sleeping (asleep in bed, not in the living room).
+export function isSleep(activity) {
+  return /\b(sleep|sleeping|asleep|bed|bedtime|nap)\b/i.test(activity?.name ?? '');
+}
+
 // Keeps valid activities only, with every field in range.
 export function cleanSchedule(input) {
   const list = Array.isArray(input?.activities) ? input.activities : [];
-  return { activities: list.slice(0, 40).map(cleanActivity).filter(Boolean) };
+  return { activities: list.slice(0, 40).map(cleanActivity).filter(Boolean), sleepAdded: input?.sleepAdded === true };
+}
+
+// The schedule with sleep added if it never had it: { schedule, changed }.
+export function withDefaultSleep(input) {
+  const schedule = cleanSchedule(input);
+  if (schedule.sleepAdded) return { schedule, changed: false };
+  if (!schedule.activities.some(isSleep)) schedule.activities.push({ ...DEFAULT_SLEEP, days: [...DAYS] });
+  schedule.sleepAdded = true;
+  return { schedule, changed: true };
 }
 
 function cleanActivity(a) {
@@ -59,7 +77,7 @@ export function occurrences(schedule, now = new Date()) {
   return out.sort((x, y) => x.start - y.start);
 }
 
-// What the twin is doing right now (the one that started most recently), or null.
+// What the clone is doing right now (the one that started most recently), or null.
 export function currentActivity(schedule, now = new Date()) {
   return occurrences(schedule, now).filter((o) => o.start <= now && now < o.end).at(-1) ?? null;
 }

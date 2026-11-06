@@ -5,7 +5,7 @@
   --muted: #a3acbd;
   --accent: #7cc4ff;
   --user: #2d5d8a;
-  --twin: rgba(255, 255, 255, 0.08);
+  --clone: rgba(255, 255, 255, 0.08);
   --danger: #ff8a7a;
   color-scheme: dark;
 }
@@ -126,8 +126,8 @@ a.chip { text-decoration: none; }
 }
 
 .bubble.user { align-self: flex-end; background: var(--user); }
-.bubble.twin { align-self: flex-start; background: var(--twin); }
-.bubble.twin:empty::after { content: "…"; color: var(--muted); }
+.bubble.clone { align-self: flex-start; background: var(--clone); }
+.bubble.clone:empty::after { content: "…"; color: var(--muted); }
 .bubble.error { color: var(--danger); }
 
 .composer { display: flex; gap: 8px; }
@@ -253,7 +253,7 @@ a.chip { text-decoration: none; }
   z-index: 2;
 }
 
-/* The twin chose not to answer. */
+/* The clone chose not to answer. */
 .bubble.quiet { font-style: italic; opacity: 0.6; background: transparent; border: 1px dashed var(--glass-border); }
 
 /* The selected thing's controls stay at the top of the panel while you scroll. */

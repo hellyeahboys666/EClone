@@ -1,4 +1,4 @@
-// Digital twin server: serves the web app, streams replies built from the persona
+// Digital clone server: serves the web app, streams replies built from the persona
 // notes (Claude or GPT), and turns reply text into speech (ElevenLabs or the Mac's `say`).
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
@@ -16,7 +16,7 @@ import { createCodex } from './codex.js';
 import { FEELINGS, createMood, createTagReader, moodTag, splitMoodTag } from './mood.js';
 import { cleanHouse } from './public/house-config.js';
 import { describeHouse, houseChanges } from './surroundings.js';
-import { cleanSchedule, clock, currentActivity, nextActivity, occurrences } from './public/schedule-config.js';
+import { cleanSchedule, clock, currentActivity, isSleep, nextActivity, occurrences, withDefaultSleep } from './public/schedule-config.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -34,13 +34,13 @@ try {
 
 const config = {
   port: Number(process.env.PORT || 4747),
-  name: process.env.TWIN_NAME || 'Twin',
+  name: process.env.CLONE_NAME || process.env.TWIN_NAME || 'Clone', // TWIN_ names from older setups still work
   personaDir: path.resolve(ROOT, process.env.PERSONA_DIR || 'persona'),
   rulesFile: path.resolve(ROOT, process.env.RULES_FILE || 'rules.md'), // another file lets you try rule changes side by side
   memoryDir: path.resolve(ROOT, process.env.MEMORY_DIR || 'memory'),
   houseFile: path.resolve(ROOT, process.env.HOUSE_FILE || 'house.json'), // the House panel's settings
   assetDir: path.resolve(ROOT, process.env.HOUSE_ASSETS_DIR || 'house-assets'), // pictures and 3D models you uploaded (private)
-  scheduleFile: path.resolve(ROOT, process.env.SCHEDULE_FILE || 'schedule.json'), // the twin's weekly schedule (private)
+  scheduleFile: path.resolve(ROOT, process.env.SCHEDULE_FILE || 'schedule.json'), // the clone's weekly schedule (private)
   // openai (GPT through the API), claude (Claude through the API), or chatgpt (GPT through
   // Codex, signed in with your ChatGPT account, so it uses your ChatGPT plan; see codex.js).
   brain: ['openai', 'claude', 'chatgpt'].includes(process.env.BRAIN) ? process.env.BRAIN : 'claude',
@@ -56,15 +56,15 @@ const config = {
   // A name starting with "claude" uses Claude; anything else uses OpenAI. "none" turns it off.
   fallbackModel: process.env.FALLBACK_MODEL || 'gpt-5.4-mini',
   fallbackAfterMs: 1000 * Number(process.env.FALLBACK_AFTER_SECONDS || 20),
-  // Whether the twin may cut you off while you're still typing or talking (yes/no).
-  interrupts: !/^(no|off|false|0)$/i.test(process.env.TWIN_INTERRUPTS || 'yes'),
+  // Whether the clone may cut you off while you're still typing or talking (yes/no).
+  interrupts: !/^(no|off|false|0)$/i.test(process.env.CLONE_INTERRUPTS || process.env.TWIN_INTERRUPTS || 'yes'),
   elevenKey: process.env.ELEVENLABS_API_KEY || '',
   elevenVoice: process.env.ELEVENLABS_VOICE_ID || '',
   elevenVoiceName: process.env.ELEVENLABS_VOICE_NAME || '',
   elevenModel: process.env.ELEVENLABS_MODEL || 'eleven_flash_v2_5',
   macVoice: process.env.MAC_VOICE || '',
 };
-// The voice can be changed from the page (the Voice panel) while the twin is running.
+// The voice can be changed from the page (the Voice panel) while the clone is running.
 const useElevenLabs = () => Boolean(config.elevenKey && config.elevenVoice);
 const brainLabel = { openai: 'OpenAI', claude: 'Claude', chatgpt: 'ChatGPT (Codex)' }[config.brain];
 const brainModel = { openai: config.openaiModel, claude: config.model, chatgpt: config.codexModel }[config.brain];
@@ -116,18 +116,21 @@ async function buildSystemPrompt() {
 }
 
 // The memories this moment brought back, in the form the rules describe. Faded,
-// smaller memories are marked fuzzy, so the twin half-remembers them.
+// smaller memories are marked fuzzy, so the clone half-remembers them.
 function memoryBlock(memories) {
   if (!memories.length) return '';
   return `<memories>\n${memories.map((m) => `- ${m.date}${m.fuzzy ? ' (fuzzy)' : ''}: ${m.text}`).join('\n')}\n</memories>`;
 }
 
-// The room the twin is standing in (the House panel's settings, in words), and what
+// The room the clone is standing in (the House panel's settings, in words), and what
 // changed since it last spoke. The house as it was then is kept in house-seen.json.
 async function surroundingsBlock() {
   const now = currentActivity(await loadSchedule());
   if (now?.activity.where === 'away') {
     return `<surroundings>\nYou're not at home right now: you're out at ${now.activity.name}${now.activity.note ? ` (${now.activity.note})` : ''}. The living room they see on their screen is empty while you're out.\n</surroundings>`;
+  }
+  if (isSleep(now?.activity)) {
+    return "<surroundings>\nYou're in bed in your bedroom, in the dark, not in the living room they see on their screen (it's empty while you sleep).\n</surroundings>";
   }
   const house = await loadHouse();
   const seen = await loadJson(path.join(config.memoryDir, 'house-seen.json'), null).catch(() => null);
@@ -143,13 +146,19 @@ async function rememberHouseSeen() {
   await saveJson(path.join(config.memoryDir, 'house-seen.json'), await loadHouse());
 }
 
-// ---- Schedule: what the twin is doing, and leaving for things -----------------
+// ---- Schedule: what the clone is doing, and leaving for things -----------------
 
+// With a default night's sleep added the first time (and saved, so it shows on the Mind page).
 async function loadSchedule() {
-  return cleanSchedule(await loadJson(config.scheduleFile, {}).catch(() => ({})));
+  const { schedule, changed } = withDefaultSleep(await loadJson(config.scheduleFile, {}).catch(() => ({})));
+  if (changed) await saveJson(config.scheduleFile, schedule).catch((err) => console.error('[schedule]', err));
+  return schedule;
 }
 
-// What the twin is doing right now and what's next, for the brain. Empty without a schedule.
+// Not in the living room they see: out somewhere, or asleep in bed.
+const outOfRoom = (o) => o?.activity.where === 'away' || isSleep(o?.activity);
+
+// What the clone is doing right now and what's next, for the brain. Empty without a schedule.
 async function scheduleBlock(when = new Date()) {
   const schedule = await loadSchedule();
   if (!schedule.activities.length) return '';
@@ -158,7 +167,14 @@ async function scheduleBlock(when = new Date()) {
   const now = currentActivity(schedule, when);
   const next = nextActivity(schedule, when);
   const lines = [];
-  if (now) {
+  if (now && isSleep(now.activity)) {
+    lines.push(
+      `Right now you're asleep (${describe(now)}, until ${clock(now.end)}). Their message woke you up, or you saw it half asleep. ` +
+        "You're groggy: reply the way someone just woken up would, very short, mumbly, maybe grumpy about being woken or asking why they're up so late, " +
+        "and wanting to go back to sleep. Often you don't answer at all ([no reply]). If it's urgent or important, you wake up properly. " +
+        "If they keep messaging, you get more awake and more annoyed.",
+    );
+  } else if (now) {
     const a = now.activity;
     lines.push(`Right now you're ${a.where === 'away' ? 'out at' : 'at home doing'} ${describe(now)}, until ${clock(now.end)}.`);
     if (a.busy) lines.push("You're busy, so reply the way you would when busy: briefly, and maybe say you're busy or at it and will talk later, in your own words. If it's urgent or important, you make time.");
@@ -179,7 +195,7 @@ async function scheduleBlock(when = new Date()) {
   return `<schedule>\n${lines.join(' ')}\n</schedule>`;
 }
 
-// Called every minute by the open page: what the twin is doing (for the status
+// Called every minute by the open page: what the clone is doing (for the status
 // chip and whether it's in the house), and, a few minutes before it goes out for
 // something, a line saying it's leaving. Each departure is announced once.
 const ANNOUNCE_SCHEMA = { type: 'object', additionalProperties: false, required: ['line'], properties: { line: { type: 'string' } } };
@@ -190,11 +206,11 @@ async function handleTick(res) {
   const when = new Date();
   const now = currentActivity(schedule, when);
   const status = now
-    ? { name: now.activity.name, note: now.activity.note, until: clock(now.end), where: now.activity.where, busy: now.activity.busy }
+    ? { name: now.activity.name, note: now.activity.note, until: clock(now.end), where: now.activity.where, busy: now.activity.busy, asleep: isSleep(now.activity) }
     : null;
   let line = null;
   const due = occurrences(schedule, when).find(
-    (o) => o.activity.where === 'away' && o.activity.notice && o.start > when && o.start - when <= o.activity.notice * 60_000,
+    (o) => outOfRoom(o) && o.activity.notice && o.start > when && o.start - when <= o.activity.notice * 60_000,
   );
   if (due && hasBrainKey() && !inFlight && !announcing) {
     const stateFile = path.join(config.memoryDir, 'schedule-state.json');
@@ -215,8 +231,8 @@ async function handleTick(res) {
   // Back from something it went out for: it walks in and notices whatever changed
   // while it was gone. Each return is handled once, within half an hour of it.
   let felt = null;
-  const back = !line && now?.activity.where !== 'away'
-    ? occurrences(schedule, when).filter((o) => o.activity.where === 'away' && o.end <= when && when - o.end < 30 * 60_000).at(-1)
+  const back = !line && !outOfRoom(now)
+    ? occurrences(schedule, when).filter((o) => outOfRoom(o) && o.end <= when && when - o.end < 30 * 60_000).at(-1)
     : null;
   if (back && hasBrainKey() && !inFlight && !announcing && !reacting) {
     const stateFile = path.join(config.memoryDir, 'schedule-state.json');
@@ -252,8 +268,10 @@ async function announceLeaving(due, when) {
     .filter(Boolean)
     .join('\n\n');
   const minutes = Math.max(1, Math.round((due.start - when) / 60_000));
-  const prompt =
-    `It's ${clock(when)}. You need to head out for ${due.activity.name}${due.activity.note ? ` (${due.activity.note})` : ''} in about ${minutes} ` +
+  const prompt = isSleep(due.activity)
+    ? `It's ${clock(when)}. You're going to bed in about ${minutes} minutes (at ${clock(due.start)}). Tell them you're heading to bed, ` +
+      "the way you'd say goodnight to a friend: one short line in your usual voice, with no mood tag. If you were in the middle of something with them, you can wrap it up."
+    : `It's ${clock(when)}. You need to head out for ${due.activity.name}${due.activity.note ? ` (${due.activity.note})` : ''} in about ${minutes} ` +
     `minutes (it starts at ${clock(due.start)}). Tell them you're about to leave, the way you'd tell a friend: one short line in your ` +
     'usual voice, with no mood tag. If you were in the middle of something with them, you can wrap it up.';
   const { data, usage } = await completeJson(system, prompt, ANNOUNCE_SCHEMA);
@@ -264,7 +282,7 @@ async function announceLeaving(due, when) {
   return line;
 }
 
-// How the twin feels right now, and how to report a change. The tag format lives
+// How the clone feels right now, and how to report a change. The tag format lives
 // here, next to the code that reads it (mood.js).
 function moodBlock() {
   return (
@@ -301,7 +319,7 @@ function cleanHistory(messages) {
       return { role: m.role, content: label + m.content.slice(0, 4000), at };
     })
     .slice(-100);
-  // The twin may have spoken first (see handleOpener), so a conversation can open with
+  // The clone may have spoken first (see handleOpener), so a conversation can open with
   // its line; the brain needs a turn from them first, so note that they opened the chat.
   if (turns[0]?.role === 'assistant') {
     turns.unshift({ role: 'user', content: `${timeLabel(turns[0].at)}(They opened the chat but haven't said anything yet.)` });
@@ -316,7 +334,7 @@ function cleanHistory(messages) {
 }
 
 // Marks each of their messages with when it was sent (this Mac's clock) and, after a
-// break, how long they were away. The twin uses it to tell a late night from a
+// break, how long they were away. The clone uses it to tell a late night from a
 // morning, and someone coming back from someone repeating themselves.
 function timeLabel(at, previousAt) {
   if (!Number.isFinite(at)) return '';
@@ -479,11 +497,11 @@ async function handleChat(req, res) {
   const { text, cutOff } = await readJson(req);
   const message = String(text ?? '').trim().slice(0, 4000);
   if (!message) return sendJson(res, 400, { error: 'No message to answer.' });
-  // `cutOff`: they talked over the twin, and this is as far as it had got (what was
+  // `cutOff`: they talked over the clone, and this is as far as it had got (what was
   // shown and heard). Only that much counts as said.
   let interrupting = false;
 
-  // Talking over the twin stops its reply. Wait for that reply to be saved first,
+  // Talking over the clone stops its reply. Wait for that reply to be saved first,
   // so the conversation stays in the order things were said.
   if (inFlight) {
     inFlight.abort.abort();
@@ -518,7 +536,7 @@ async function handleChat(req, res) {
     const [vector, instructions, room, plans] = await Promise.all([memory.cueVector(cue), buildSystemPrompt(), surroundingsBlock(), scheduleBlock()]);
     const recalled = memory.recall(cue, { vector });
     const system = [instructions, memoryBlock(recalled), room, plans, moodBlock()].filter(Boolean);
-    // The twin may choose to say nothing: then the reply (after the mood tag) is just
+    // The clone may choose to say nothing: then the reply (after the mood tag) is just
     // [no reply]. Text starting with "[" is held back until it's clear which it is.
     let held = '';
     const show = (text) => {
@@ -630,8 +648,8 @@ async function handleConversation(res) {
   });
 }
 
-// New chat: the twin sleeps on this conversation, then starts a fresh one.
-// When they open the page after a break, the twin decides whether it would say
+// New chat: the clone sleeps on this conversation, then starts a fresh one.
+// When they open the page after a break, the clone decides whether it would say
 // something first, the way a friend might ("so how'd the test go?"). Usually it waits.
 const OPENER_GAP_MS = 3 * 3_600_000;
 const OPENER_SCHEMA = {
@@ -675,7 +693,7 @@ async function handleOpener(res) {
   }
 }
 
-// After you change the house, the twin looks around and reacts the way it would, by
+// After you change the house, the clone looks around and reacts the way it would, by
 // its own taste and nerves (from the persona notes): it might love the plant, hate the
 // wallpaper, jump at something that suddenly appeared right next to it, or come home
 // to a new TV and be thrilled. Its mood follows, and the line is saved in the
@@ -693,7 +711,7 @@ const REACTION_SCHEMA = {
 };
 let reacting = false;
 
-// What the twin writes (after its mood tag) when it chooses not to answer.
+// What the clone writes (after its mood tag) when it chooses not to answer.
 const NO_REPLY = /^\[\s*(no reply|no response|silence|says? nothing|ignores?[^\]]*)\s*\]\s*$/i;
 
 // `arriving` is the activity it just came home from, or null if it was standing there.
@@ -709,7 +727,9 @@ async function reactToHouse({ arriving = null } = {}) {
   const system = [instructions, memoryBlock(memory.recall(cue, { vector, reinforce: false })), room, plans, `<mood>\n${mood.describe()}\n</mood>`]
     .filter(Boolean)
     .join('\n\n');
-  const what = arriving
+  const what = isSleep(arriving)
+    ? `You just woke up and walked into the living room. While you were asleep, someone changed your home: ${changes.join('; ')}. You see it the moment you come in, still a bit sleepy.`
+    : arriving
     ? `You just got home from ${arriving.name}${arriving.note ? ` (${arriving.note})` : ''} and walked in. While you were out, someone changed your home: ${changes.join('; ')}. You see it the moment you come in.`
     : `Just now, while you were standing there, they changed your home: ${changes.join('; ')}. It happened with no warning, right in front of you.`;
   const prompt =
@@ -739,7 +759,7 @@ async function reactToHouse({ arriving = null } = {}) {
 async function handleHouseReact(res) {
   const none = () => sendJson(res, 200, { line: null });
   if (!hasBrainKey() || inFlight || reacting) return none();
-  if (currentActivity(await loadSchedule())?.activity.where === 'away') return none(); // it'll notice when it's back
+  if (outOfRoom(currentActivity(await loadSchedule()))) return none(); // it'll notice when it's back
   reacting = true;
   try {
     const reaction = await reactToHouse();
@@ -757,10 +777,10 @@ function moodForPage(felt) {
   return { ...felt, at: Date.now(), since: Date.now(), halfLifeHours: mood.snapshot().halfLifeHours };
 }
 
-// ---- Interrupting: the twin cuts in while they're still typing or talking ------
+// ---- Interrupting: the clone cuts in while they're still typing or talking ------
 // The page sends what they've typed (or said into the mic) so far, whenever they
-// pause or have added a few words. Usually the twin lets them finish. If it would cut
-// in, the page shows them being cut off and the twin's line, and only then (accept)
+// pause or have added a few words. Usually the clone lets them finish. If it would cut
+// in, the page shows them being cut off and the clone's line, and only then (accept)
 // is it saved, so a check that comes back after they already sent is dropped.
 const INTERJECT_SCHEMA = {
   type: 'object',
@@ -783,7 +803,7 @@ async function handleInterject(req, res) {
   const no = () => sendJson(res, 200, { interrupt: false });
   if (!config.interrupts || !hasBrainKey() || inFlight || reacting || interjecting) return no();
   if ((text.match(/\S+/g) ?? []).length < 4) return no();
-  if (currentActivity(await loadSchedule())?.activity.where === 'away') return no(); // can't see them typing
+  if (outOfRoom(currentActivity(await loadSchedule()))) return no(); // can't see them typing
   interjecting = true;
   try {
     const recent = cleanHistory(memory.messages()).slice(-8)
@@ -883,7 +903,7 @@ async function handleUploadAsset(req, res) {
   sendJson(res, 200, { url: `/house-assets/${name}` });
 }
 
-// Optional: a short description of an uploaded picture, so the twin knows what it
+// Optional: a short description of an uploaded picture, so the clone knows what it
 // shows. Sends the picture to OpenAI once, only when you ask for it.
 async function handleDescribePicture(req, res) {
   const { url } = await readJson(req);
@@ -959,7 +979,7 @@ async function handleMindChange(req, res) {
     else if (action === 'deleteMemory') await memory.removeMemory(body.id);
     else if (action === 'forgetAll') await memory.forgetAll();
     else if (action === 'resetMood') await mood.reset();
-    else if (action === 'saveSchedule') await saveJson(config.scheduleFile, cleanSchedule(body.schedule));
+    else if (action === 'saveSchedule') await saveJson(config.scheduleFile, { ...cleanSchedule(body.schedule), sleepAdded: true });
     else if (action === 'clearConversation') await memory.clearConversation();
     else return sendJson(res, 400, { error: 'Unknown change.' });
   } catch (err) {
@@ -1107,7 +1127,7 @@ async function handleVoiceRoute(req, res, handler) {
 
 // The text goes through a file, never the command line, so it can't be read as options.
 async function macSpeech(text) {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'twin-say-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'clone-say-'));
   try {
     await writeFile(path.join(dir, 'in.txt'), text);
     const args = ['-f', 'in.txt', '-o', 'out.wav', '--file-format=WAVE', '--data-format=LEI16@22050'];
@@ -1208,7 +1228,7 @@ function fromThisMac(req) {
 
 const server = http.createServer(async (req, res) => {
   const { pathname } = new URL(req.url, 'http://localhost');
-  if (!fromThisMac(req)) return sendJson(res, 403, { error: 'Only pages on this computer can use the twin.' });
+  if (!fromThisMac(req)) return sendJson(res, 403, { error: 'Only pages on this computer can use the clone.' });
   try {
     if (req.method === 'POST' && pathname === '/api/chat') return await handleChat(req, res);
     if (req.method === 'POST' && pathname === '/api/tts') return await handleTts(req, res);
@@ -1259,14 +1279,14 @@ await mood.load();
 // Localhost only: nobody else on the network can use your API keys through this server.
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`Port ${config.port} is already in use. The twin may already be running: open http://localhost:${config.port}`);
+    console.error(`Port ${config.port} is already in use. The clone may already be running: open http://localhost:${config.port}`);
     console.error('Or set PORT in .env to another number (like 4848) and start again.');
     process.exit(1);
   }
   throw err;
 });
 server.listen(config.port, '127.0.0.1', () => {
-  console.log(`Digital twin running at http://localhost:${config.port}`);
+  console.log(`Digital clone running at http://localhost:${config.port}`);
   if (config.brain === 'chatgpt') {
     if (codexStatus.signedIn) console.log(`Brain: ${brainModel} through Codex, on your ChatGPT plan`);
     else console.log(`Brain: ChatGPT sign-in isn't ready (${codexStatus.detail}; run: codex login). ${backupModel ? `${backupModel.name} answers meanwhile.` : 'Demo replies until then.'}`);

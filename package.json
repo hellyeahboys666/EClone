@@ -3,7 +3,7 @@
   "version": "0.1.0-demo",
   "private": true,
   "type": "module",
-  "description": "EClone (demo): a talking 3D digital twin of a person. GPT or Claude brain, persona notes, memory and mood, cloned or Mac voice, VRM avatar in a 3D house.",
+  "description": "EClone (demo): a talking 3D digital clone of a person. GPT or Claude brain, persona notes, memory and mood, cloned or Mac voice, VRM avatar in a 3D house.",
   "license": "MIT",
   "scripts": {
     "start": "node server.js",

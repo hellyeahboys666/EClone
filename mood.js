@@ -1,9 +1,9 @@
-// The twin's mood: one feeling at a time, with an intensity from 0 to 10. Like a
+// The clone's mood: one feeling at a time, with an intensity from 0 to 10. Like a
 // person's, a feeling comes from what just happened, lingers after it, and fades
-// back to the twin's usual self. It's saved in memory/mood.json, so it carries over
+// back to the clone's usual self. It's saved in memory/mood.json, so it carries over
 // between conversations and restarts.
 //
-// The brain says how the twin feels at the start of each reply, in a hidden tag
+// The brain says how the clone feels at the start of each reply, in a hidden tag
 // like [mood: annoyed 6 | they brushed off my point]. The server takes the tag off
 // before the reply is shown or spoken.
 import { formatTime, loadJson, saveJson } from './memory.js';
@@ -16,7 +16,7 @@ const MENTION_HOURS = 24; // a worn-off feeling is still mentioned for this long
 export const SORE = ['annoyed', 'angry', 'hurt', 'disgusted'];
 const COOL_PER_MESSAGE = 2;
 
-// The feelings the twin can report. The page maps each one to a facial expression.
+// The feelings the clone can report. The page maps each one to a facial expression.
 export const FEELINGS = [
   'calm', 'happy', 'amused', 'excited', 'proud', 'grateful', 'curious', 'surprised', 'confused',
   'skeptical', 'bored', 'tired', 'nervous', 'worried', 'sympathetic', 'embarrassed', 'annoyed', 'angry', 'hurt', 'sad',
@@ -57,7 +57,7 @@ export function createMood({ file }) {
     return { feeling, intensity, reason };
   }
 
-  // For the brain: how the twin feels right now, in plain words.
+  // For the brain: how the clone feels right now, in plain words.
   function describe() {
     const now = Date.now();
     const usual = "Right now you're calm, your usual self.";

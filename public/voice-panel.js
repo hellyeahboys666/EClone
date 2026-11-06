@@ -1,6 +1,6 @@
 // The Voice panel (click the Voice chip): set up an ElevenLabs voice without
 // touching .env. Paste the API key once, pick a voice from your account (clones
-// first, each with a free preview), try it, and save. The twin uses it right away.
+// first, each with a free preview), try it, and save. The clone uses it right away.
 // The key is sent to this Mac's server only and never comes back to the page.
 export function createVoicePanel({ button, panel, onChange, onOpen }) {
   let state = null; // from GET /api/voice
@@ -89,7 +89,7 @@ export function createVoicePanel({ button, panel, onChange, onOpen }) {
       changingKey = false;
       busy = '';
       onChange?.(state);
-      say(state.using === 'elevenlabs' ? `Saved. ${state.voiceName || 'This voice'} is the twin's voice now.` : 'Switched to the Mac voice. Your ElevenLabs key is still saved.');
+      say(state.using === 'elevenlabs' ? `Saved. ${state.voiceName || 'This voice'} is the clone's voice now.` : 'Switched to the Mac voice. Your ElevenLabs key is still saved.');
     } catch (err) {
       busy = '';
       say(err.message, true);

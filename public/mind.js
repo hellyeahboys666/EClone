@@ -1,6 +1,6 @@
-// The Mind page: edit the twin's persona notes, rules and memories, and reset its
+// The Mind page: edit the clone's persona notes, rules and memories, and reset its
 // mood or conversation. Everything goes through the server (/api/mind), so edits
-// are safe while the twin is running.
+// are safe while the clone is running.
 
 import { DAYS, DAY_NAMES, NOTICE_OPTIONS, PRESETS, clock, currentActivity, nextActivity } from './schedule-config.js';
 
@@ -83,7 +83,7 @@ function personaView() {
   const current = notes.find((n) => n.name === openNote);
   const list = h('div', { class: 'notes' },
     notes.map((n) => h('button', { type: 'button', 'aria-current': String(n.name === openNote), onclick: () => { openNote = n.name; render(); } },
-      n.name, n.name === 'README.md' ? h('small', {}, 'Guide, not sent to the twin') : null)),
+      n.name, n.name === 'README.md' ? h('small', {}, 'Guide, not sent to the clone') : null)),
   );
   const newName = h('input', { type: 'text', placeholder: '05-music.md', 'aria-label': 'New note name' });
   const add = h('form', { class: 'stack', onsubmit: async (e) => {
@@ -104,11 +104,11 @@ function personaView() {
   const save = h('button', { class: 'btn primary', type: 'button', disabled: true, onclick: () => change('savePersona', { name: current.name, text: editor.value }) }, 'Save');
   editor.addEventListener('input', () => (save.disabled = editor.value === current.text));
   const remove = h('button', { class: 'btn danger', type: 'button', onclick: () => {
-    if (confirm(`Delete ${current.name}? The twin will stop knowing what's in it.`)) change('deletePersona', { name: current.name }, 'Note deleted.');
+    if (confirm(`Delete ${current.name}? The clone will stop knowing what's in it.`)) change('deletePersona', { name: current.name }, 'Note deleted.');
   } }, 'Delete note');
   return h('div', { class: 'split' }, side, h('div', { class: 'stack' },
     h('p', { class: 'muted' }, current.name === 'README.md'
-      ? 'This guide explains what to write. It is not sent to the twin.'
+      ? 'This guide explains what to write. It is not sent to the clone.'
       : 'Write in the first person, the way they would describe themselves. Facts, how they talk, opinions, people, stories.'),
     editor,
     h('div', { class: 'row' }, save, remove),
@@ -122,7 +122,7 @@ function rulesView() {
   const save = h('button', { class: 'btn primary', type: 'button', disabled: true, onclick: () => change('saveRules', { text: editor.value }) }, 'Save');
   editor.addEventListener('input', () => (save.disabled = editor.value === state.rules));
   return h('div', { class: 'stack' },
-    h('p', { class: 'muted' }, 'How any twin behaves: how to talk, time and memory, feelings, honesty. These rules come before the persona notes.'),
+    h('p', { class: 'muted' }, 'How any clone behaves: how to talk, time and memory, feelings, honesty. These rules come before the persona notes.'),
     editor,
     h('div', { class: 'row' }, save),
   );
@@ -152,7 +152,7 @@ function memoriesView() {
     if (await change('addMemory', { text: text.value, importance: importance.value, date: date.value }, 'Memory added.')) text.value = '';
   } },
   h('strong', {}, 'Add a memory'),
-  h('p', { class: 'muted' }, 'Write it the way the twin would remember it, in the first person.'),
+  h('p', { class: 'muted' }, 'Write it the way the clone would remember it, in the first person.'),
   text,
   h('div', { class: 'row' }, h('label', { class: 'muted' }, 'Importance'), importance, date, h('button', { class: 'btn', type: 'submit' }, 'Add')));
 
@@ -208,7 +208,7 @@ function scheduleView() {
   const upcoming = next ? ` Next: ${next.activity.name} at ${clock(next.start)} ${when(next.start)}.` : '';
 
   const save = h('button', { class: 'btn primary', type: 'button', onclick: async () => {
-    if (await change('saveSchedule', { schedule: draft }, 'Schedule saved. The twin follows it from now on.')) draft = structuredClone(state.schedule), render();
+    if (await change('saveSchedule', { schedule: draft }, 'Schedule saved. The clone follows it from now on.')) draft = structuredClone(state.schedule), render();
   } }, 'Save schedule');
   const presets = h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Add:'),
     PRESETS.map((p) => h('button', { class: 'btn', type: 'button', onclick: () => { draft.activities.push({ ...structuredClone(p), id: newId() }); render(); } }, p.name)),
@@ -218,7 +218,7 @@ function scheduleView() {
     h('p', { class: 'muted' }, `What ${name} does during the week, using this computer's clock. While busy, replies are short (like "at work, talk later"). While out, the avatar isn't in the house. Before going out, ${name} can say it's leaving, while the page is open.`),
     h('div', { class: 'card' }, h('p', {}, status + upcoming)),
     presets,
-    draft.activities.length ? draft.activities.map(activityCard) : h('p', { class: 'muted' }, 'No schedule yet, so the twin is always free. Add something above.'),
+    draft.activities.length ? draft.activities.map(activityCard) : h('p', { class: 'muted' }, 'No schedule yet, so the clone is always free. Add something above.'),
     h('div', { class: 'row' }, save, h('span', { class: 'muted' }, 'Changes here take effect when you save.')),
   );
 }

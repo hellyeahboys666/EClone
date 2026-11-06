@@ -33,23 +33,23 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
   controls.enableDamping = true;
   controls.update();
 
-  // Two ways to look. "twin": facing the twin, and you can only turn around it
+  // Two ways to look. "clone": facing the clone, and you can only turn around it
   // (drag); the camera stops short of the walls and ceiling. "room": looking down
   // on the whole room from above, where you can turn and zoom. Switching glides
   // between them, and the view out the window is hidden from above, where it
   // would be a picture floating in the dark.
-  const TWIN = { target: controls.target.clone(), distance: camera.position.distanceTo(controls.target), polar: 0, azimuth: 0 };
+  const CLONE = { target: controls.target.clone(), distance: camera.position.distanceTo(controls.target), polar: 0, azimuth: 0 };
   {
-    const s = new THREE.Spherical().setFromVector3(camera.position.clone().sub(TWIN.target));
-    TWIN.polar = s.phi;
-    TWIN.azimuth = s.theta;
+    const s = new THREE.Spherical().setFromVector3(camera.position.clone().sub(CLONE.target));
+    CLONE.polar = s.phi;
+    CLONE.azimuth = s.theta;
   }
   const ROOM_VIEW = { target: new THREE.Vector3(0, 0, (ROOM.back + ROOM.front) / 2 - 0.35), distance: 16 * Math.max(1, 1 / Math.sqrt(startAspect)), polar: 0.12, azimuth: 0 };
   const LIMITS = {
-    twin: { rotate: true, zoom: false, pan: false, minPolar: 1.0, maxPolar: 1.72, minDistance: 0.3, maxDistance: TWIN.distance },
+    clone: { rotate: true, zoom: false, pan: false, minPolar: 1.0, maxPolar: 1.72, minDistance: 0.3, maxDistance: CLONE.distance },
     room: { rotate: true, zoom: true, pan: false, minPolar: 0, maxPolar: 0.6, minDistance: 7, maxDistance: ROOM_VIEW.distance * 1.15 },
   };
-  let mode = 'twin';
+  let mode = 'clone';
   function applyLimits(name) {
     const l = LIMITS[name];
     controls.enableRotate = l.rotate;
@@ -60,7 +60,7 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
     controls.minDistance = l.minDistance;
     controls.maxDistance = l.maxDistance;
   }
-  applyLimits('twin');
+  applyLimits('clone');
 
   // Keeps the camera inside the room: on the line from what it's looking at, it
   // stops short of a wall, the ceiling or the floor, without losing its direction,
@@ -84,7 +84,7 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
   const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
   function view(name) {
     if (!LIMITS[name] || (name === mode && !flight)) return;
-    const to = name === 'room' ? ROOM_VIEW : TWIN;
+    const to = name === 'room' ? ROOM_VIEW : CLONE;
     // Finish any leftover drift from a drag first, so it can't nudge the landing.
     controls.enableDamping = false;
     controls.update();
@@ -128,10 +128,10 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
       }
     } else {
       controls.update();
-      if (mode === 'twin') {
-        controls.target.copy(TWIN.target);
-        const direction = camera.position.clone().sub(TWIN.target).normalize();
-        camera.position.copy(TWIN.target).addScaledVector(direction, keepInside(TWIN.target, direction, TWIN.distance));
+      if (mode === 'clone') {
+        controls.target.copy(CLONE.target);
+        const direction = camera.position.clone().sub(CLONE.target).normalize();
+        camera.position.copy(CLONE.target).addScaledVector(direction, keepInside(CLONE.target, direction, CLONE.distance));
       }
     }
     // The sky and view outside are only seen through the window, from inside.
@@ -193,7 +193,7 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
     renderer.render(scene, camera);
   });
 
-  // Whether the twin is home: when its schedule has it out, the room is empty.
+  // Whether the clone is home: when its schedule has it out, the room is empty.
   let present = true;
   function setPresent(here) {
     present = here;
@@ -338,7 +338,7 @@ const RECOIL = { scared: 1, startled: 0.8, surprised: 0.35, nervous: 0.3, disgus
 const EXPRESSIONS = ['happy', 'angry', 'sad', 'relaxed', 'surprised'];
 
 // Procedural life: breathing, relaxed arms, head drift, nods while talking,
-// random blinks, a face that shows the twin's mood, a mouth that follows the
+// random blinks, a face that shows the clone's mood, a mouth that follows the
 // loudness of the voice, and body language: eyes that glance away now and then,
 // a look up and aside while thinking, nods while listening, a droop when low.
 function createMotion() {

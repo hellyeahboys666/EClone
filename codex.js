@@ -1,4 +1,4 @@
-// The "sign in with ChatGPT" brain (BRAIN=chatgpt). The twin's messages go through
+// The "sign in with ChatGPT" brain (BRAIN=chatgpt). The clone's messages go through
 // Codex, OpenAI's own command-line tool, signed in with your ChatGPT account, so they
 // use your ChatGPT plan instead of API credits. It's slower than the API: a few
 // seconds per reply, and the reply arrives all at once instead of word by word.

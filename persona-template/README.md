@@ -1,12 +1,12 @@
-# Persona notes: who the twin is
+# Persona notes: who the clone is
 
-Every `.md` file in this folder, except this README, is given to the twin with each message. Edits apply on the next message, with no restart needed. Edit them on the **Mind** page (the Mind button on the twin's page) or in any text editor.
+Every `.md` file in this folder, except this README, is given to the clone with each message. Edits apply on the next message, with no restart needed. Edit them on the **Mind** page (the Mind button on the clone's page) or in any text editor.
 
 ## How to write them
 
 - **Write in the first person**, as the person: "I'm 19", not "Sam is 19".
-- **Be specific.** "I say 'no shot' when I don't believe something" beats "I'm casual". Real phrases, real opinions and real stories make the twin sound like them.
-- **Only write what's true and what they're happy to share.** The twin says it doesn't know rather than making things up, so gaps are fine.
+- **Be specific.** "I say 'no shot' when I don't believe something" beats "I'm casual". Real phrases, real opinions and real stories make the clone sound like them.
+- **Only write what's true and what they're happy to share.** The clone says it doesn't know rather than making things up, so gaps are fine.
 - **Short lines beat long paragraphs.** One fact or habit per line.
 - **Replace every "(replace this)" line,** or delete it. `npm run check` lists notes that still have them.
 
@@ -34,13 +34,13 @@ The best notes come from the person answering in their own words. Record a conve
 7. What phrases or words do you use all the time?
 8. Do you text in long messages or short ones? Emoji? Capital letters?
 9. What makes you annoyed in a conversation? What makes you laugh?
-10. Who are the people you talk about most, and what should the twin know about them?
+10. Who are the people you talk about most, and what should the clone know about them?
 11. What's a story you tell a lot?
 12. What are you working toward right now?
 13. What are you proud of? What are you unsure about?
-14. What should the twin never say or pretend about you?
-15. How should the twin answer if someone asks something you'd rather keep private?
+14. What should the clone never say or pretend about you?
+15. How should the clone answer if someone asks something you'd rather keep private?
 
 ## Consent
 
-The person should agree to having a twin, know who will talk to it, and be able to have it changed or deleted. Keep this folder private. `npm run share` and `.gitignore` leave it out.
+The person should agree to having a clone, know who will talk to it, and be able to have it changed or deleted. Keep this folder private. `npm run share` and `.gitignore` leave it out.

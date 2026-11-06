@@ -6,7 +6,7 @@ import { createVoicePanel } from './voice-panel.js';
 
 const els = {
   canvas: document.getElementById('scene'),
-  name: document.getElementById('twin-name'),
+  name: document.getElementById('clone-name'),
   brainChip: document.getElementById('brain-chip'),
   voiceChip: document.getElementById('voice-chip'),
   statusChip: document.getElementById('status-chip'),
@@ -15,7 +15,7 @@ const els = {
   newChat: document.getElementById('new-chat'),
   houseButton: document.getElementById('house-button'),
   viewRoom: document.getElementById('view-room'),
-  viewTwin: document.getElementById('view-twin'),
+  viewClone: document.getElementById('view-clone'),
   housePanel: document.getElementById('house-panel'),
   voicePanel: document.getElementById('voice-panel'),
   loading: document.getElementById('loading'),
@@ -29,9 +29,9 @@ const els = {
 const speech = createSpeechQueue((err) => hint(`Voice error: ${err.message}`));
 
 // Open the page with ?debug to try body language and moods from the browser console:
-// twinDebug.activity('thinking'), twinDebug.mood('happy', 8).
+// cloneDebug.activity('thinking'), cloneDebug.mood('happy', 8).
 if (new URLSearchParams(location.search).has('debug')) {
-  window.twinDebug = {
+  window.cloneDebug = {
     activity: (a) => (activity = a),
     mood: (feeling, intensity = 8) => {
       mood = { feeling, intensity, at: Date.now(), halfLifeHours: 2 };
@@ -40,13 +40,13 @@ if (new URLSearchParams(location.search).has('debug')) {
   };
 }
 let currentTurn = null;
-let lastCaption = null; // the twin's latest line, while it may still be saying it
+let lastCaption = null; // the clone's latest line, while it may still be saying it
 let pendingCut = null; // what it had said when you clicked the mic to talk over it
-let twinAway = false;
+let cloneAway = false;
 let sends = 0;
 let mic = { cancel() {} };
 let mood = { feeling: 'calm', intensity: 0, at: Date.now(), halfLifeHours: 2 };
-// What the twin is doing, for its body language: 'idle', 'listening' (your mic is on)
+// What the clone is doing, for its body language: 'idle', 'listening' (your mic is on)
 // or 'thinking' (waiting for its reply to start). Talking comes from the voice itself.
 let activity = 'idle';
 
@@ -86,12 +86,12 @@ async function init() {
     getActivity: () => activity,
     onProgress: (p) => (els.loading.textContent = `Loading avatar… ${Math.min(100, Math.round(p * 100))}%`),
   });
-  // Camera: look down on the whole room, or go back to facing the twin.
+  // Camera: look down on the whole room, or go back to facing the clone.
   els.viewRoom.addEventListener('click', () => stage.view('room'));
-  els.viewTwin.addEventListener('click', () => stage.view('twin'));
+  els.viewClone.addEventListener('click', () => stage.view('clone'));
   els.canvas.addEventListener('viewchange', (event) => {
     els.viewRoom.hidden = event.detail.mode === 'room';
-    els.viewTwin.hidden = event.detail.mode !== 'room';
+    els.viewClone.hidden = event.detail.mode !== 'room';
   });
 
   const house = createHousePanel({ button: els.houseButton, panel: els.housePanel, initial: config.house, stage, onChange: stage.setHouse, onSettled: reactToHouse });
@@ -142,29 +142,29 @@ function addBubble(kind, text) {
   return li;
 }
 
-// The conversation and the twin's memories live on the server (memory/ on this
+// The conversation and the clone's memories live on the server (memory/ on this
 // Mac), so they survive refreshes, restarts and switching browsers.
 async function loadConversation() {
   let { messages } = await (await fetch('/api/conversation')).json();
   if (!messages.length) messages = await importOldConversation();
   for (const m of messages) {
-    if (m.silent) addBubble('twin quiet', '(no reply)');
-    else addBubble(m.role === 'user' ? 'user' : 'twin', m.content);
+    if (m.silent) addBubble('clone quiet', '(no reply)');
+    else addBubble(m.role === 'user' ? 'user' : 'clone', m.content);
   }
 }
 
-// After a break, the twin may say something first ("so how'd the test go?"). The
+// After a break, the clone may say something first ("so how'd the test go?"). The
 // server decides; most of the time it waits for you.
 async function maybeSpeakFirst() {
   const res = await fetch('/api/opener', { method: 'POST' });
   const { line, totals } = await res.json();
   if (!line || currentTurn) return;
-  const caption = createCaption(addBubble('twin', ''));
+  const caption = createCaption(addBubble('clone', ''));
   if (totals) showUsage(null, totals);
   caption.say(line);
 }
 
-// The twin's schedule, checked every minute: what it's doing (the status chip),
+// The clone's schedule, checked every minute: what it's doing (the status chip),
 // whether it's home (the avatar is gone while it's out), and a line when it's
 // about to leave for something ("heading to work, talk later").
 let setPresent = () => {};
@@ -174,27 +174,33 @@ async function checkSchedule() {
   if (!res?.ok) return;
   const { scheduled, status, line, mood: felt, totals } = await res.json();
   els.statusChip.hidden = !scheduled;
-  const label = status ? `${status.where === 'away' ? 'Out' : status.busy ? 'Busy' : 'Now'}: ${status.name} · until ${status.until}` : 'Free';
+  const label = status
+    ? status.asleep ? `Asleep · until ${status.until}` : `${status.where === 'away' ? 'Out' : status.busy ? 'Busy' : 'Now'}: ${status.name} · until ${status.until}`
+    : 'Free';
   els.statusChip.textContent = label;
-  els.statusChip.title = status?.note ? `${status.name}: ${status.note}` : status ? `${status.where === 'away' ? 'Out' : 'At home'}, ${status.busy ? 'busy' : 'free to chat'}` : 'Nothing on the schedule right now.';
-  setPresent(status?.where !== 'away');
-  if (label !== lastStatus && status?.where === 'away') hint(`${els.name.textContent} is out (${status.name}) until ${status.until}. You can still message.`);
-  else if (label !== lastStatus && lastStatus.startsWith('Out')) hint('');
+  els.statusChip.title = status?.asleep
+    ? 'In bed. A message might wake them up.'
+    : status?.note ? `${status.name}: ${status.note}` : status ? `${status.where === 'away' ? 'Out' : 'At home'}, ${status.busy ? 'busy' : 'free to chat'}` : 'Nothing on the schedule right now.';
+  const gone = status?.where === 'away' || status?.asleep; // out, or in bed: the living room is empty
+  setPresent(!gone);
+  if (label !== lastStatus && status?.asleep) hint(`${els.name.textContent} is asleep until ${status.until}. A message might wake them up.`);
+  else if (label !== lastStatus && status?.where === 'away') hint(`${els.name.textContent} is out (${status.name}) until ${status.until}. You can still message.`);
+  else if (label !== lastStatus && /^(Out|Asleep)/.test(lastStatus)) hint('');
   lastStatus = label;
-  twinAway = status?.where === 'away';
+  cloneAway = Boolean(gone);
   if (line && !currentTurn) {
     if (felt) {
       // It just came home and noticed something new.
       mood = felt;
       showMood();
     }
-    const caption = createCaption(addBubble('twin', ''));
+    const caption = createCaption(addBubble('clone', ''));
     if (totals) showUsage(null, totals);
     caption.say(line);
   }
 }
 
-// After you change the house, the twin says what it thinks of it, by its own taste.
+// After you change the house, the clone says what it thinks of it, by its own taste.
 async function reactToHouse() {
   if (currentTurn) return; // it'll notice in its next reply instead
   const res = await fetch('/api/house-react', { method: 'POST' }).catch(() => null);
@@ -206,12 +212,12 @@ async function reactToHouse() {
     showMood();
   }
   if (totals) showUsage(null, totals);
-  createCaption(addBubble('twin', '')).say(line);
+  createCaption(addBubble('clone', '')).say(line);
 }
 
 // An earlier version kept the conversation in this browser; hand it to the server once.
 async function importOldConversation() {
-  const key = `twin-history:${els.name.textContent}`;
+  const key = `twin-history:${els.name.textContent}`; // the old key name, kept so old chats still import
   try {
     const old = JSON.parse(localStorage.getItem(key) ?? '[]');
     if (!Array.isArray(old) || !old.length) return [];
@@ -228,7 +234,7 @@ async function importOldConversation() {
   }
 }
 
-// The twin sleeps on this conversation (forms memories from it), then starts fresh.
+// The clone sleeps on this conversation (forms memories from it), then starts fresh.
 async function newChat() {
   if (!confirm(`Start a new conversation? ${els.name.textContent} will remember what mattered in this one.`)) return;
   interrupt();
@@ -276,7 +282,7 @@ function showUsage(last, totals) {
   els.tokenChip.title = lines.join('\n');
 }
 
-// The twin's feeling right now: it fades by half every couple of hours, the same
+// The clone's feeling right now: it fades by half every couple of hours, the same
 // way the server works it out (mood.js), and below 1.5 it has worn off.
 function currentFeeling() {
   const hours = (Date.now() - mood.at) / 3_600_000;
@@ -293,10 +299,10 @@ function showMood() {
     : `About ${Math.round(level)}/10${mood.reason ? `, because: ${mood.reason}` : ''}. Fades over a few hours.`;
 }
 
-// You talk over the twin: it stops mid-sentence, its bubble keeps only the words it
+// You talk over the clone: it stops mid-sentence, its bubble keeps only the words it
 // got out (ending in a dash), and the server is told how far it got. Returns those
 // words, or null if it wasn't saying anything.
-function cutTwinOff() {
+function cutCloneOff() {
   const caption = lastCaption;
   if (!caption?.talking()) return null;
   const said = caption.said().trim();
@@ -311,7 +317,7 @@ function cutTwinOff() {
   return said;
 }
 
-// Stops the twin mid-sentence when you start talking or send something new.
+// Stops the clone mid-sentence when you start talking or send something new.
 function interrupt() {
   currentTurn?.abort();
   currentTurn = null;
@@ -321,7 +327,7 @@ function interrupt() {
 async function send(rawText) {
   const text = rawText.trim();
   if (!text) return;
-  const cutOff = pendingCut ?? cutTwinOff();
+  const cutOff = pendingCut ?? cutCloneOff();
   pendingCut = null;
   sends += 1;
   clearTimeout(draftCheck.timer);
@@ -330,7 +336,7 @@ async function send(rawText) {
   hint('');
   addBubble('user', text);
 
-  const bubble = addBubble('twin', '');
+  const bubble = addBubble('clone', '');
   const caption = createCaption(bubble);
   caption.streaming = true;
   const turn = new AbortController();
@@ -396,7 +402,7 @@ async function send(rawText) {
   }
 }
 
-// Subtitles for the twin: a reply's words appear in its bubble as the voice says
+// Subtitles for the clone: a reply's words appear in its bubble as the voice says
 // them, not all at once. Each sentence's words are spread over its audio, longer
 // words taking a little longer. Without sound they appear at a speaking pace.
 const WORDS_PER_SECOND = 2.8;
@@ -470,10 +476,10 @@ function createCaption(bubble) {
   return caption;
 }
 
-// ---- The twin cutting in while you're still typing or talking -----------------
+// ---- The clone cutting in while you're still typing or talking -----------------
 // Whenever you pause, or have added a few words, the server gets what you've said so
-// far and the twin decides whether it would cut you off (usually it lets you finish).
-// If it does, your unfinished message ends in a dash and the twin's line follows.
+// far and the clone decides whether it would cut you off (usually it lets you finish).
+// If it does, your unfinished message ends in a dash and the clone's line follows.
 const draftCheck = { timer: null, busy: false, checked: '', lastAt: 0 };
 const wordCount = (text) => (text.match(/\S+/g) ?? []).length;
 
@@ -481,7 +487,7 @@ function watchDraft() {
   clearTimeout(draftCheck.timer);
   speech.unlock(); // typing counts as a click, so its voice can play if it cuts in
   const text = els.input.value.trim();
-  if (wordCount(text) < 4 || currentTurn || lastCaption?.talking() || twinAway) return;
+  if (wordCount(text) < 4 || currentTurn || lastCaption?.talking() || cloneAway) return;
   if (wordCount(text) - wordCount(draftCheck.checked) >= 7 && Date.now() - draftCheck.lastAt > 4000) return void checkDraft();
   draftCheck.timer = setTimeout(checkDraft, 1400);
 }
@@ -510,7 +516,7 @@ async function checkDraft() {
       showMood();
     }
     if (r.totals) showUsage(null, r.totals);
-    createCaption(addBubble('twin', '')).say(r.line);
+    createCaption(addBubble('clone', '')).say(r.line);
   } catch {
     // A failed check just means it lets you finish.
   } finally {
@@ -671,7 +677,7 @@ function setupMic() {
   };
   els.mic.addEventListener('click', () => {
     if (listening) return rec.stop();
-    pendingCut = cutTwinOff(); // talking over it
+    pendingCut = cutCloneOff(); // talking over it
     interrupt();
     speech.unlock();
     heard = '';
@@ -681,7 +687,7 @@ function setupMic() {
     els.mic.classList.add('on');
     hint('Listening…');
   });
-  // The twin cut you off: stop listening and drop what was heard.
+  // The clone cut you off: stop listening and drop what was heard.
   return {
     cancel() {
       if (!listening) return;

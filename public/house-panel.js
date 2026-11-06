@@ -5,7 +5,7 @@
 //             from a catalog (or your own photos and 3D models), drag anything around,
 //             and turn, resize, recolor or remove the selected one
 // Every change shows up in the 3D house right away and is saved to house.json a moment
-// later. A few seconds after you stop changing things, the twin says what it thinks
+// later. A few seconds after you stop changing things, the clone says what it thinks
 // (onSettled).
 import { CATALOG, HOUSE_DEFAULTS, HOUSE_FIELDS, cleanHouse, newItemId, startingFurniture } from './house-config.js';
 
@@ -84,9 +84,9 @@ export function createHousePanel({ button, panel, initial, stage, onChange, onSe
       } }, 'Reset to default'));
   }
 
-  // "Use my own picture" for the wallpaper or the view, with a description the twin reads.
+  // "Use my own picture" for the wallpaper or the view, with a description the clone reads.
   function pictureControls(imageKey, labelKey, title) {
-    const label = h('input', { type: 'text', value: settings[labelKey], placeholder: 'What it shows (for the twin)', 'aria-label': `${title}: what it shows`, onchange: () => update({ [labelKey]: label.value }) });
+    const label = h('input', { type: 'text', value: settings[labelKey], placeholder: 'What it shows (for the clone)', 'aria-label': `${title}: what it shows`, onchange: () => update({ [labelKey]: label.value }) });
     const describe = h('button', { type: 'button', class: 'small', onclick: async () => {
       label.value = await describePicture(settings[imageKey]) ?? label.value;
       update({ [labelKey]: label.value });
@@ -136,7 +136,7 @@ export function createHousePanel({ button, panel, initial, stage, onChange, onSe
       h('p', { class: 'house-help' }, 'Everything in the room can be moved, the sofa, TV, rug and pictures too: click a thing, then drag it. Wall things slide along any wall. Drag empty space to turn the view. To see everything, use See the whole room, where you can also scroll to zoom.'),
       h('div', { class: 'row-buttons' },
         h('button', { type: 'button', class: 'small', onclick: () => stage.view('room') }, 'See the whole room'),
-        h('button', { type: 'button', class: 'small', onclick: () => stage.view('twin') }, 'Back to the twin')),
+        h('button', { type: 'button', class: 'small', onclick: () => stage.view('clone') }, 'Back to the clone')),
       h('div', { class: 'catalog' }, adds, own),
       item ? null : h('p', { class: 'house-help' }, settings.items.length ? `${settings.items.length} things in the room. Click one to change or remove it.` : 'The room is empty.'),
       missing.length
@@ -244,7 +244,7 @@ export function createHousePanel({ button, panel, initial, stage, onChange, onSe
   function addItem({ type, image, model }) {
     const def = CATALOG[type];
     // New things start somewhere free: floor things off to the sides (never between
-    // you and the twin), wall things on bare stretches of wall (not over the window).
+    // you and the clone), wall things on bare stretches of wall (not over the window).
     const round = (v) => Math.round(v * 100) / 100;
     const count = settings.items.filter((i) => CATALOG[i.type].place === def.place).length;
     const wallSpots = [{ wall: 'right', z: -1.8, y: 1.7 }, { wall: 'left', z: 2.8, y: 1.6 }, { wall: 'back', x: -0.15, y: 2.25 }, { wall: 'right', z: 2.0, y: 1.7 }, { wall: 'left', z: -2.3, y: 1.9 }];
@@ -318,13 +318,13 @@ export function createHousePanel({ button, panel, initial, stage, onChange, onSe
     return res.ok ? data.description : null;
   }
 
-  // ---- Changes, saving, and the twin's reaction ------------------------------
+  // ---- Changes, saving, and the clone's reaction ------------------------------
   function update(changes, rebuild = true) {
     settings = cleanHouse({ ...settings, ...changes });
     changed(rebuild);
   }
 
-  // `sudden`: something just landed right by the twin, so it reacts almost at once
+  // `sudden`: something just landed right by the clone, so it reacts almost at once
   // (the way you'd jump), instead of waiting until you've finished decorating.
   function changed(rebuild = true, sudden = false) {
     if (rebuild) {
@@ -335,7 +335,7 @@ export function createHousePanel({ button, panel, initial, stage, onChange, onSe
     status.textContent = 'Saving…';
     saveTimer = setTimeout(save, 600);
     clearTimeout(settleTimer);
-    settleTimer = setTimeout(settle, sudden ? 1200 : 5000); // otherwise the twin reacts once you've paused
+    settleTimer = setTimeout(settle, sudden ? 1200 : 5000); // otherwise the clone reacts once you've paused
   }
 
   async function save() {
@@ -372,8 +372,8 @@ export function createHousePanel({ button, panel, initial, stage, onChange, onSe
       onMove: (id, where) => {
         settings = cleanHouse({ ...settings, items: settings.items.map((i) => (i.id === id ? { ...i, ...where } : i)) });
         const item = settings.items.find((i) => i.id === id);
-        const nearTwin = item && CATALOG[item.type].place === 'floor' && Math.hypot(item.x, item.z) < 1.2; // it stands at (0, 0)
-        changed(false, nearTwin); // already where it was dropped; no rebuild needed
+        const nearClone = item && CATALOG[item.type].place === 'floor' && Math.hypot(item.x, item.z) < 1.2; // it stands at (0, 0)
+        changed(false, nearClone); // already where it was dropped; no rebuild needed
       },
     });
   }
