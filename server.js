@@ -1010,7 +1010,7 @@ async function handleTts(req, res) {
 }
 
 async function handleConfig(res) {
-  const localAvatar = (await readdir(AVATAR_DIR).catch(() => [])).filter((f) => f.endsWith('.vrm')).sort()[0];
+  const localAvatar = (await readdir(AVATAR_DIR).catch(() => [])).filter((f) => /\.(vrm|glb)$/i.test(f)).sort()[0];
   sendJson(res, 200, {
     name: config.name,
     brain: hasBrainKey() ? config.brain : 'demo',

@@ -77,7 +77,7 @@ The prompt goes in on stdin. The reply comes back in one piece through its JSON 
 | `persona/` | Notes about the person: who they are, how they talk, their opinions. Re-read on every message. **Private.** |
 | `persona-backups/` | Earlier copies of the persona notes. **Private.** |
 | `memory/` | The twin's memory files (created automatically). **Private.** |
-| `avatar/` | Put a `.vrm` avatar here to replace the sample one. |
+| `avatar/` | Put a `.vrm` or `.glb` avatar here to replace the sample one. **Private.** |
 | `public/index.html` | The page: 3D canvas, top bar with status chips, chat panel. Loads three.js from a CDN with an import map, so there's no build step. |
 | `public/app.js` | Chat, mic input, streaming, the sentence-by-sentence speech queue, interrupting, the Mood and Tokens chips, New chat, speaking first after a break. Opening the page with `?debug` adds `twinDebug.mood('happy', 8)` and `twinDebug.activity('thinking')` to the browser console. |
 | `public/house.js` | The house, built from simple shapes plus textures drawn in code (no image files):<br>• a living room with a window and an outside view (garden, city or lake)<br>• a kitchen through a doorway<br>• curtains and a small plant on the window sill (all the furniture is movable items, built in `decor.js`)<br>• lighting for morning, day, sunset and night: the sun shines through the window and casts shadows, and lamps light the room at night |
@@ -88,6 +88,7 @@ The prompt goes in on stdin. The reply comes back in one piece through its JSON 
 | `public/house-panel.js` | The House panel (the **House** button at the top). Changes show right away and are saved to `house.json`. |
 | `house.json` | Saved House settings. Not private. |
 | `public/scene.js` | The three.js stage (two camera views: facing the twin, where you can only turn around it and the camera stops at the walls, and **Whole room** from above, where you can turn and zoom, with a smooth glide between them and the outside hidden from above; tone mapping; reflections), loading the VRM avatar, idle motion, blinking, mood expressions, body language (eyes that glance away now and then, a look up and aside while thinking, nods while listening, a droop when low), and the mouth driven by audio loudness. |
+| `public/glb-avatar.js` | Makes a plain `.glb` character work like a VRM avatar: finds the humanoid bones by common rig names (turning A-pose arms out to a T-pose first), maps Apple ARKit, viseme or VRM-style face shape keys onto blink, mouth and mood expressions, and turns eye bones toward the viewer. |
 | `public/style.css` | Page styles. |
 | `.env` | Settings and API keys. **Secret, never share or print.** `.env.example` is the template. |
 | `README.md` | Setup and how to make the twin your own. |
@@ -258,12 +259,12 @@ Each idea was tried side by side against the current version, using a made-up st
 - **Gestures:** the mood already drives the face; drive a few body animations from it too, and voice emotion with ElevenLabs v3 tags like [sighs] and [laughs].
 - **Per-person memory:** recognize who's talking and keep separate memories and a relationship with each person.
 - **Faster first words:** skip the meaning lookup for tiny messages like "ok", or start the reply while it runs.
-- **Custom avatar:** a custom avatar (VRoid Studio exports `.vrm`) and a cloned voice, both made with the person's consent.
+- **Custom avatar:** a custom avatar (a VRoid Studio `.vrm`, or a realistic `.glb`) and a cloned voice, both made with the person's consent.
 
 ## Working rules for anyone changing it
 
 - **Keep keys secret.** Never print, paste, or commit API keys. They live only in `.env`.
-- **Keep the private folders private.** `persona/`, `persona-backups/`, `memory/`, and any `.vrm` or voice files are about a real person. Don't upload them, commit them, or paste their contents into AI tools.
+- **Keep the private folders private.** `persona/`, `persona-backups/`, `memory/`, and any avatar (`.vrm`, `.glb`) or voice files are about a real person. Don't upload them, commit them, or paste their contents into AI tools.
 - **Test with a made-up persona and a separate memory folder,** so tests don't touch the real twin's memory. For example:
 
   ```bash

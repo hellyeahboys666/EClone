@@ -1,10 +1,11 @@
-// The 3D side: the house (house.js), the VRM avatar, and its idle motion,
+// The 3D side: the house (house.js), the VRM or .glb avatar, and its idle motion,
 // blinking, gaze, body language, mood expressions, and audio-driven mouth.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+import { glbAvatar } from './glb-avatar.js';
 import { buildHouse, placeItem, ROOM } from './house.js';
 import { CATALOG } from './house-config.js';
 import { phaseFor } from './house-config.js';
@@ -298,20 +299,25 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
   return { setHouse, setPresent, setDecorating, select: highlight, view, get mode() { return mode; }, loaded };
 }
 
+// A .vrm avatar, or a plain .glb character wired up to look like one (glb-avatar.js).
 async function loadAvatar(url, onProgress) {
   const loader = new GLTFLoader();
   loader.register((parser) => new VRMLoaderPlugin(parser));
   const gltf = await loader.loadAsync(url, (e) => e.total && onProgress?.(e.loaded / e.total));
-  const vrm = gltf.userData.vrm;
-  if (!vrm) throw new Error('That file is not a VRM avatar.');
-  VRMUtils.removeUnnecessaryVertices(gltf.scene);
-  VRMUtils.combineSkeletons(gltf.scene);
-  VRMUtils.rotateVRM0(vrm); // VRM 0.x models face the other way
-  vrm.scene.traverse((obj) => {
+  let avatar = gltf.userData.vrm;
+  if (avatar) {
+    VRMUtils.removeUnnecessaryVertices(gltf.scene);
+    VRMUtils.combineSkeletons(gltf.scene);
+    VRMUtils.rotateVRM0(avatar); // VRM 0.x models face the other way
+  } else {
+    if (!gltf.scene.getObjectByProperty('isMesh', true)) throw new Error('That file has no 3D model in it.');
+    avatar = glbAvatar(gltf.scene);
+  }
+  avatar.scene.traverse((obj) => {
     obj.frustumCulled = false;
     if (obj.isMesh) obj.castShadow = true;
   });
-  return vrm;
+  return avatar;
 }
 
 // Which of the avatar's built-in expressions each feeling shows as, and how much.

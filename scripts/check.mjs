@@ -100,9 +100,9 @@ else {
   else ok(`${notes.length} persona notes`);
 }
 
-const avatars = existsSync(path.join(ROOT, 'avatar')) ? readdirSync(path.join(ROOT, 'avatar')).filter((f) => f.endsWith('.vrm')) : [];
+const avatars = existsSync(path.join(ROOT, 'avatar')) ? readdirSync(path.join(ROOT, 'avatar')).filter((f) => /\.(vrm|glb)$/i.test(f)).sort() : [];
 if (avatars.length) ok(`Avatar: ${avatars[0]}`);
-else warn('Avatar: the sample one (put a .vrm file in avatar/ to use your own)');
+else warn('Avatar: the sample one (put a .vrm or .glb file in avatar/ to use your own)');
 
 const memoryDir = path.resolve(ROOT, env.MEMORY_DIR || 'memory');
 const memories = readJson(path.join(memoryDir, 'memories.json'));

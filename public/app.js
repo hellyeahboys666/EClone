@@ -91,9 +91,17 @@ async function init() {
   createHousePanel({ button: els.houseButton, panel: els.housePanel, initial: config.house, stage, onChange: stage.setHouse, onSettled: reactToHouse });
   setPresent = stage.setPresent;
   stage.loaded
-    .then(() => {
+    .then((avatar) => {
       els.loading.hidden = true;
-      if (config.sampleAvatar) hint('Using a sample avatar. Put your own .vrm file in the avatar folder to replace it.');
+      if (config.sampleAvatar) hint('Using a sample avatar. Put your own .vrm or .glb file in the avatar folder to replace it.');
+      // A .glb character may lack a standard skeleton or face shape keys.
+      const lacks = {
+        skeleton: 'standard skeleton, so it stands still',
+        mouth: "mouth shape keys, so its mouth won't move",
+        blink: "blink shape keys, so it won't blink",
+      };
+      const missing = (avatar.missing ?? []).map((m) => lacks[m]);
+      if (missing.length) hint(`This avatar has no ${missing.join(', and no ')}.`);
     })
     .catch((err) => (els.loading.textContent = `Avatar failed to load: ${err.message}`));
 
