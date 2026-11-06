@@ -255,3 +255,14 @@ a.chip { text-decoration: none; }
 
 /* The twin chose not to answer. */
 .bubble.quiet { font-style: italic; opacity: 0.6; background: transparent; border: 1px dashed var(--glass-border); }
+
+/* The selected thing's controls stay at the top of the panel while you scroll. */
+.house-panel .pinned {
+  position: sticky;
+  top: -12px;
+  z-index: 1;
+  background: rgba(28, 31, 38, 0.97);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+}
+.house-panel .editor-head { display: flex; align-items: center; gap: 6px; }
+.house-panel .editor-head > :first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

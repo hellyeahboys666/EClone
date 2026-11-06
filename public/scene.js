@@ -180,7 +180,7 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
     if (!id) return; // empty space: the camera orbits as usual
     controls.enabled = false;
     const item = { ...settings.items.find((i) => i.id === id) };
-    drag = { id, item, wall: CATALOG[item.type]?.place === 'wall' };
+    drag = { id, item, wall: CATALOG[item.type]?.place === 'wall', from: `${item.x},${item.z},${item.y},${item.wall}` };
     canvas.setPointerCapture(event.pointerId);
   }, { capture: true });
 
@@ -209,9 +209,10 @@ export function createStage(canvas, { avatarUrl, house: houseSettings, getMouthL
 
   const drop = () => {
     if (!drag) return;
-    const { id, item } = drag;
+    const { id, item, from } = drag;
     drag = null;
     controls.enabled = true;
+    if (`${item.x},${item.z},${item.y},${item.wall}` === from) return; // just a click: nothing moved
     const round = (v) => Math.round(v * 100) / 100;
     callbacks.onMove?.(id, { x: round(item.x), z: round(item.z), y: round(item.y), wall: item.wall });
   };

@@ -72,7 +72,7 @@ you ──text/speech──▶ browser (public/) ──▶ server.js ──▶ G
 • talking to ChatGPT directly (`CODEX_BASE_URL`)
 
 The prompt goes in on stdin. The reply comes back in one piece through its JSON events, and memory forming uses `--output-schema`. It takes about 5 s a reply, and Codex adds about 15–20k tokens of its own to each call. Those tokens are recorded as `plan` (not billed). If Codex fails or isn't ready, the backup model answers. |
-| `mood.js` | The twin's mood: reading the hidden mood tag, saving the feeling, and fading it over time. |
+| `mood.js` | The twin's mood: reading the hidden mood tag, saving the feeling, and fading it over time. Anger and hurt also cool slowly per message (`settle`): whatever the brain reports, one message takes at most 2 points off, so a quick "sorry" can't snap it back to fine, and the brain is reminded to keep acting it out. `rules.md` (Getting mad) makes it react fast to insults and mockery, by its own temper. |
 | `rules.md` | General behavior rules for any twin (how to talk, time and memory, having opinions, honesty). Re-read on every message. |
 | `persona/` | Notes about the person: who they are, how they talk, their opinions. Re-read on every message. **Private.** |
 | `persona-backups/` | Earlier copies of the persona notes. **Private.** |

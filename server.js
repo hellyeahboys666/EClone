@@ -558,8 +558,8 @@ async function handleChat(req, res) {
       // Waiting on a stuck model is worse than switching to the backup.
       const timer = !last && backupModel ? setTimeout(() => started || attempt.abort(), config.fallbackAfterMs) : null;
       const tags = createTagReader((m) => {
-        felt = m;
-        send({ type: 'mood', ...m, at: Date.now(), halfLifeHours: mood.snapshot().halfLifeHours });
+        felt = mood.settle(m); // anger cools slowly, whatever the brain says
+        send({ type: 'mood', ...felt, at: Date.now(), halfLifeHours: mood.snapshot().halfLifeHours });
       });
       const stream = { openai: streamOpenAI, claude: streamClaude, codex: streamCodex }[model.provider];
       try {
@@ -726,9 +726,9 @@ async function reactToHouse({ arriving = null } = {}) {
     intensity: Math.min(10, Math.max(0, Math.round(data.intensity))),
     reason: String(data.reason ?? '').trim().slice(0, 200) || 'how the room changed',
   };
-  await mood.set(felt);
-  await memory.addMessage({ role: 'assistant', content: line, at: Date.now(), mood: felt });
-  return { line, felt };
+  const settled = await mood.set(felt);
+  await memory.addMessage({ role: 'assistant', content: line, at: Date.now(), mood: settled });
+  return { line, felt: settled };
 }
 
 async function handleHouseReact(res) {
@@ -827,8 +827,8 @@ async function handleInterjectAccept(req, res) {
   if (!p || p.token !== token || Date.now() - p.at > 60_000 || inFlight) return sendJson(res, 409, { ok: false });
   pendingInterjection = null;
   await memory.addMessage({ role: 'user', content: `${p.draft}—`, at: p.at, cutOff: true });
-  await mood.set(p.felt);
-  await memory.addMessage({ role: 'assistant', content: p.line, at: Date.now(), mood: p.felt });
+  const settled = await mood.set(p.felt);
+  await memory.addMessage({ role: 'assistant', content: p.line, at: Date.now(), mood: settled });
   sendJson(res, 200, { ok: true });
 }
 

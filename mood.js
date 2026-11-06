@@ -11,6 +11,10 @@ import { formatTime, loadJson, saveJson } from './memory.js';
 export const HALF_LIFE_HOURS = 2; // an 8/10 feeling is a 4 two hours later, and gone in about five
 const FADED = 1.5; // below this the feeling has worn off
 const MENTION_HOURS = 24; // a worn-off feeling is still mentioned for this long
+// Anger and hurt cool off slowly, like a person's: whatever the brain reports, one
+// message can take at most this much off them (on top of fading with time).
+export const SORE = ['annoyed', 'angry', 'hurt', 'disgusted'];
+const COOL_PER_MESSAGE = 2;
 
 // The feelings the twin can report. The page maps each one to a facial expression.
 export const FEELINGS = [
@@ -32,11 +36,25 @@ export function createMood({ file }) {
     return state.intensity * 0.5 ** ((now - state.at) / 3_600_000 / HALF_LIFE_HOURS);
   }
 
-  async function set({ feeling, intensity, reason }) {
+  // What a newly reported feeling really comes to. Being annoyed, angry or hurt
+  // doesn't vanish because of one nice message or a quick "sorry": it eases by at most
+  // COOL_PER_MESSAGE. A stronger or equal sore feeling replaces it as reported.
+  function settle(next, now = Date.now()) {
+    if (!state || !SORE.includes(state.feeling)) return next;
+    const floor = Math.round(level(now)) - COOL_PER_MESSAGE;
+    if (floor < 2) return next;
+    const sore = SORE.includes(next.feeling);
+    if (sore && next.intensity >= floor) return next;
+    return { feeling: sore ? next.feeling : state.feeling, intensity: floor, reason: sore ? next.reason : state.reason };
+  }
+
+  async function set(reported) {
     const now = Date.now();
+    const { feeling, intensity, reason } = settle(reported, now);
     const continuing = state && state.feeling === feeling && level(now) >= FADED;
     state = { feeling, intensity, reason, since: continuing ? state.since : now, at: now };
     await saveJson(file, state);
+    return { feeling, intensity, reason };
   }
 
   // For the brain: how the twin feels right now, in plain words.
@@ -53,7 +71,10 @@ export function createMood({ file }) {
     const rounded = Math.round(strength);
     const fading = rounded < state.intensity ? `, down from ${state.intensity}/10 on ${formatTime(state.at)}` : '';
     const since = state.since < state.at ? ` You've felt this way since ${formatTime(state.since)}.` : '';
-    return `Right now you feel ${state.feeling}, about ${rounded}/10${fading}${because}.${since}`;
+    const sore = SORE.includes(state.feeling) && rounded >= 3
+      ? ` You're still ${state.feeling}, and it shows in how you talk to them (short, cold or sharp) until it has worn off or they've really made it right. Don't act like it's fine.`
+      : '';
+    return `Right now you feel ${state.feeling}, about ${rounded}/10${fading}${because}.${since}${sore}`;
   }
 
   // The feeling as it stands now, rounded, for replies that didn't report one.
@@ -74,7 +95,7 @@ export function createMood({ file }) {
     await saveJson(file, state);
   }
 
-  return { load, set, describe, current, snapshot, reset };
+  return { load, set, settle, describe, current, snapshot, reset };
 }
 
 // The tag as it appears at the start of a reply, also used to show the brain how it

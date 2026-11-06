@@ -13,6 +13,7 @@ export function createHousePanel({ button, panel, initial, stage, onChange, onSe
   let settings = cleanHouse(initial);
   let tab = 'look';
   let selected = null; // id of the selected placed thing
+  let removed = null; // the last thing removed, so it can be put back: { item, index }
   let saveTimer;
   let rebuildTimer;
   let settleTimer;
@@ -122,13 +123,22 @@ export function createHousePanel({ button, panel, initial, stage, onChange, onSe
     ];
     const item = settings.items.find((i) => i.id === selected);
     const missing = startingFurniture().filter((s) => !settings.items.some((i) => i.id === s.id));
+    // What you're working on stays pinned at the top while you scroll the catalog.
+    const pinned = item
+      ? itemEditor(item)
+      : removed
+        ? h('div', { class: 'card pinned editor-head' },
+            h('span', {}, `Removed the ${removed.name}.`),
+            h('button', { type: 'button', class: 'small', onclick: undoRemove }, 'Undo'))
+        : null;
     return h('div', { class: 'stack' },
+      pinned,
       h('p', { class: 'house-help' }, 'Everything in the room can be moved, the sofa, TV, rug and pictures too: click a thing, then drag it. Wall things slide along any wall. Drag empty space to look around, scroll to zoom, right-drag to slide.'),
       h('div', { class: 'row-buttons' },
         h('button', { type: 'button', class: 'small', onclick: () => stage.view('room') }, 'See the whole room'),
         h('button', { type: 'button', class: 'small', onclick: () => stage.view('twin') }, 'Back to the twin')),
       h('div', { class: 'catalog' }, adds, own),
-      item ? itemEditor(item) : h('p', { class: 'house-help' }, settings.items.length ? `${settings.items.length} things in the room. Click one to change it.` : 'The room is empty.'),
+      item ? null : h('p', { class: 'house-help' }, settings.items.length ? `${settings.items.length} things in the room. Click one to change or remove it.` : 'The room is empty.'),
       missing.length
         ? h('button', { type: 'button', class: 'house-reset', onclick: () => {
             update({ items: [...settings.items, ...missing] });
@@ -154,7 +164,10 @@ export function createHousePanel({ button, panel, initial, stage, onChange, onSe
     const turn = (by) => patch({ rot: (settings.items.find((i) => i.id === item.id)?.rot ?? 0) + by });
     const size = h('input', { type: 'range', id: 'house-item-size', min: 0.3, max: 3, step: 0.05, value: item.scale, oninput: () => patch({ scale: Number(size.value) }) });
     const parts = [
-      h('strong', {}, item.label && item.type !== 'poster' ? item.label : capitalize(def.name)),
+      h('div', { class: 'editor-head' },
+        h('strong', {}, item.label && item.type !== 'poster' ? item.label : capitalize(def.name)),
+        h('button', { type: 'button', class: 'small danger', title: 'Remove it (Delete key)', onclick: removeSelected }, 'Remove'),
+        h('button', { type: 'button', class: 'small', title: 'Done with it (Esc)', 'aria-label': 'Deselect', onclick: deselect }, '✕')),
       def.place === 'floor'
         ? h('div', { class: 'row-buttons' }, h('span', { class: 'house-help' }, 'Turn'),
             h('button', { type: 'button', class: 'small', 'aria-label': 'Turn left', onclick: () => turn(-45) }, '⟲'),
@@ -179,13 +192,54 @@ export function createHousePanel({ button, panel, initial, stage, onChange, onSe
         } }, 'Describe it for me'));
       }
     }
-    parts.push(h('button', { type: 'button', class: 'small danger', onclick: () => {
-      update({ items: settings.items.filter((i) => i.id !== item.id) });
-      selected = null;
-      render();
-    } }, 'Remove'));
-    return h('div', { class: 'card stack' }, parts);
+    return h('div', { class: 'card stack pinned' }, parts);
   }
+
+  function removeSelected() {
+    const index = settings.items.findIndex((i) => i.id === selected);
+    if (index < 0) return;
+    const item = settings.items[index];
+    const def = CATALOG[item.type];
+    removed = { item, index, name: item.label && item.type !== 'poster' ? item.label : def.name };
+    update({ items: settings.items.filter((i) => i.id !== item.id) });
+    selected = null;
+    stage.select(null);
+    render();
+  }
+
+  function undoRemove() {
+    if (!removed) return;
+    const items = [...settings.items];
+    items.splice(Math.min(removed.index, items.length), 0, removed.item);
+    const id = removed.item.id;
+    removed = null;
+    update({ items });
+    selected = id;
+    setTimeout(() => stage.select(id), 200); // once the house is rebuilt
+    render();
+  }
+
+  function deselect() {
+    selected = null;
+    stage.select(null);
+    render();
+  }
+
+  // Delete (or Backspace) removes the selected thing, Esc lets go of it, and
+  // Cmd/Ctrl+Z puts back the last one removed, while you're decorating.
+  document.addEventListener('keydown', (event) => {
+    if (panel.hidden || tab !== 'decorate') return;
+    if (event.target.closest?.('input, textarea, select, [contenteditable]')) return;
+    if ((event.key === 'Delete' || event.key === 'Backspace') && selected) {
+      event.preventDefault();
+      removeSelected();
+    } else if (event.key === 'Escape' && selected) {
+      deselect();
+    } else if (event.key.toLowerCase() === 'z' && (event.metaKey || event.ctrlKey) && removed) {
+      event.preventDefault();
+      undoRemove();
+    }
+  });
 
   function addItem({ type, image, model }) {
     const def = CATALOG[type];
@@ -312,6 +366,7 @@ export function createHousePanel({ button, panel, initial, stage, onChange, onSe
     stage.setDecorating(!panel.hidden && tab === 'decorate', {
       onSelect: (id) => {
         selected = id;
+        if (id) removed = null;
         render();
       },
       onMove: (id, where) => {
